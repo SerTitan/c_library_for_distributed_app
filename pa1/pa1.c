@@ -11,16 +11,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <signal.h>
-#include <ctype.h>
+#include <sys/wait.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <string.h>
 
 #define im_not_a_father father.my_pid != getpid()
 
-//Файлы логово и сообщений для пайпов
+
 static const char * const events_log;
 static const char * const pipes_log;
 
@@ -29,8 +26,19 @@ static const char * const log_received_all_started_fmt;
 static const char * const log_done_fmt;
 static const char * const log_received_all_done_fmt;
 
-char buffer[100];
-int fd[45][2];
+static const char * const pipe_closed_read_from_for =
+    "Pipe closed in process %d for reading into %d process from %d process.\n";
+    
+static const char * const pipe_closed_write_from_into =
+    "Pipe closed in process %d for writing from %d process into %d process.\n";
+
+static const char * const pipe_opened =
+    "Pipes opened for writing/reading %d.\n";
+
+static char buffer[50];
+static char buffer2[50];   
+static int fd[16][16][2];
+static uint8_t children_number;
 
 struct Actor {
     enum _role{
@@ -48,12 +56,12 @@ struct Actor {
 };
 
 // initialization 
-void actor_dad(struct Actor *dad, uint8_t embryo, pid_t zero_dad){
+void actor_dad(struct Actor *dad, pid_t zero_dad){
     dad->my_id = PARENT_ID;
     dad->my_pid = zero_dad;
     dad->my_father_pid = -1;
     dad->my_role = DAD;
-    dad->my_kids= embryo;
+    dad->my_kids= children_number;
 }
 
 void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid) {
@@ -62,10 +70,8 @@ void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father
     daughter->my_father_pid = father_pid;
     daughter->my_role = CHILD;
     daughter->my_kids = 0;
-    //printf(log_started_fmt, id, pid, father_pid);
     sprintf(buffer, log_started_fmt, id, pid, father_pid);
 }
-
 
 
 // pid named dad make fork kids times 
@@ -91,53 +97,79 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter){
     }
 }
 
+int send_multicast(void * self, const Message * msg) {
+    struct Actor *sender = (struct Actor *)self;
+    for (uint8_t i = 0; i <= children_number; i++) {
+        if (sender->my_id != i) {
+            int write_fd = fd[sender->my_id][i][1];
+            if (write(write_fd, msg, sizeof(Message)) == -1) {
+            perror("write");
+            return -1;
+    }
+        } 
+    }
+}
+
+
+int receive_any(void * self, Message * msg){
+    struct Actor *receiver = (struct Actor *)self;
+    for (uint8_t i = 0; i <= children_number; i++) {
+        if (receiver->my_id != i) {
+            int read_fd = fd[receiver->my_id][i][0];
+            if (read(read_fd, msg, sizeof(Message)) == -1) {
+                perror("read");
+                return -1;
+            }
+        }
+    }
+}
+
 
 int send(void * self, local_id dst, const Message * msg) {
     // TODO
     // struct Actor *daughter = (struct Actor *)self;
     // write(fd[daughter->my_id+dst][1], msg, sizeof(Message));
-    return 0;
 }
 
-int send_multicast(void * self, const Message * msg) {
-    // TODO
-    return 0;
-}
 
 int receive(void * self, local_id from, Message * msg) {
     //read(fd[from][0], );
-    return 0;
 }
 
-int receive_any(void * self, Message * msg){
-    // TODO
-    return 0;
-}
-
-/*
-0: 0 ... children_number-2
-1: children_number-1 ... 2*children_number - 1
-2: 
-children_number-1: children_number*(children_number-1) ... 
-4
-0: 0, 1, 2, 3
-1: 4, 5, 6
-2: 7, 8
-3: 9
-4:
-*/
 
 //CLose unused pipes
-void leave_needed_pipes(local_id id, uint8_t children_number) {
-    // fd[x][0] - read from x 
-    // fd[x][1]
-    // id == 2
-    for (int8_t i = 0; i < children_number; i++) {
-        for (int8_t j = 0; j < children_number-i; j++) {
-            if (i != id) {
-                if (i > id || j + i != id) {
-                    close(fd[i*children_number+j][0]);
-                    close(fd[i*children_number+j][1]);
+void leave_needed_pipes(local_id id, int* f2) {
+    if (id == PARENT_ID) {
+        for (int8_t i = 0; i <= children_number; i++) {
+            for (int8_t j = 0; j <= children_number; j++) {
+                close(fd[i][j][1]);
+                sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
+                write(*f2, buffer2, strlen(buffer2));
+                if (i != PARENT_ID) {
+                    close(fd[i][j][0]);
+                    sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                    write(*f2, buffer2, strlen(buffer2));
+                    
+                }
+            }
+        }
+    }
+    else {
+        for (int8_t i = 0; i <= children_number; i++) {
+            for (int8_t j = 0; j <= children_number-i; j++) {
+                if (j == PARENT_ID) {
+                    close(fd[i][j][0]);
+                    sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                    write(*f2, buffer2, strlen(buffer2));
+                } 
+                else if (i != id) {
+                    close(fd[i][j][0]);
+                    sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                    write(*f2, buffer2, strlen(buffer2));
+                    close(fd[i][j][1]);
+                    sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
+                    write(*f2, buffer2, strlen(buffer2));
+                    
                 }
             }
         }
@@ -145,61 +177,102 @@ void leave_needed_pipes(local_id id, uint8_t children_number) {
 }
 
 
+bool prepare_for_work(struct Actor *dad, struct Actor *daughter){
+    if (send_multicast() != children_number)
+        return -1;
+    while (1)
+        if (receive_any() == children_number - 1) {
+            sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
+            break;
+        }
+    }
+    return 0;
+}
+
+
+void at_work(struct Actor *dad, struct Actor *daughter){
+    //Some kind of work
+    sprintf(buffer, log_done_fmt, daughter->my_id);
+}
+
+
+void before_a_sleep(struct Actor *dad, struct Actor *daughter){
+    sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
+}
+
+
 int main(int argc, char *argv[]) {
 
     // Check for parameters 
-    uint8_t children_number = 0;
+    children_number = 0;
     if (argc != 3 || strcmp(argv[1], "-p") != 0 || atoi(argv[2]) == 0){
+        //printf("Неопознанный ключ или неверное количество аргументов! Пример: -p <количество процессов>\n");
         exit(1);
     }
     else{
-        if (atoi(argv[2]) > 10 || atoi(argv[2]) < 0)
+        if (atoi(argv[2]) > MAX_PROCESS_ID || atoi(argv[2]) <= PARENT_ID){
+            //printf("Некорректное количество процессов для создания (0 < x <= 15)!\n");
             exit(1);
+        }   
         else
             children_number = atoi(argv[2]);
     }
 
     //Try to create or open files
-    int f1 = open(events_log, O_WRONLY, O_TRUNC | O_CREAT);
-    int f2 = open(pipes_log, O_WRONLY, O_TRUNC | O_CREAT); 
+    int f1 = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
+    int f2 = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
     if (f1 == -1)
         exit(1);
     if (f2 == -1)
         exit(1);
 
     //Make pipes
-    for (int i = 0; i < children_number*(children_number-1)/2; i++) {
-        pipe(fd[i]);
+    int num_of_pipes = 0;
+    for (int i = 0; i <= children_number; i++) {
+        for (int j = 0; j <= children_number; j++) {
+            if (i != j) {
+                if (pipe(fd[i][j]) == -1) {
+                perror("pipe");
+                exit(EXIT_FAILURE);
+            }
+            num_of_pipes++;
+            }
+        }
     }
+    
+    sprintf(buffer2, pipe_opened, num_of_pipes);
+    write(f2, buffer2, strlen(buffer2));
 
     //The appearance of the father
     struct Actor father;
-    actor_dad(&father, children_number, getpid());
+    actor_dad(&father, getpid());
 
     //Start of fork (born of daughters)
     struct Actor daughter;
     become_a_dad(&father, &daughter);
-    
-    //Close extra pipes
-    if (im_not_a_father) 
-        leave_needed_pipes(daughter.my_id, children_number);
-    else
-        leave_needed_pipes(father.my_id, children_number);
-    
-    //Logging process working
-    if (im_not_a_father)
-        write(f1, buffer, strlen(buffer));
 
     if (im_not_a_father){
-        sprintf(buffer, log_received_all_done_fmt, daughter.my_id);
-        write(f1, buffer, strlen(buffer));
-    }
+        leave_needed_pipes(daughter.my_id, &f2); //Close extra pipes for child processes
 
-    //Close of files
-    if (!im_not_a_father){
+        write(f1, buffer, strlen(buffer));
+        prepare_for_work(&father, &daughter); //Synchronization before useful work
+
+        at_work(&father, &daughter); //Useful work
+        write(f1, buffer, strlen(buffer)); 
+
+        before_a_sleep(&father, &daughter); //Synchronization after useful work
+        write(f1, buffer, strlen(buffer));
+
+        exit(0);
+    }
+    else{
+        leave_needed_pipes(father.my_id, &f2); //Close extra pipes for main processes
+        int status;
+        while (1)
+            if (wait(&status) > 0) break; //Waiting for the end of child processes 
+        //Closing of files
         close(f1);
         close(f2);
-    }
-    
+    } 
     return 0;
 }
