@@ -25,6 +25,8 @@ static const char * const pipe_opened;
 static char buffer[50], buffer2[50]; 
 static int fd[16][16][2];
 static uint8_t children_number;
+static MessageType last_recieved_message[16];
+static int is_closed[16][16] = {0}; //Number in cell i,j describe status of pipe between i and j. 0 - it's opened. 1 - it's closed for reading. 2 - it's closed for writing. 3 - it's completley closed;
 
 struct Actor {
     enum _role{
@@ -109,31 +111,32 @@ Message make_a_message(MessageType messageType, const char *message) {
 
 
 int send_multicast(void * self, const Message * msg) {
-    struct Actor *sender = (struct Actor *)self;
-    for (uint8_t i = 0; i <= children_number; i++) {
-        if (sender->my_id != i) {
-            int write_fd = fd[sender->my_id][i][1];
-            if (write(write_fd, msg, sizeof(Message)) == -1) {
-                perror("write");
-                return -1;
-            }
-        } 
-    }
+    // struct Actor *sender = (struct Actor *)self;
+    // for (uint8_t i = 0; i <= children_number; i++) {
+    //     if (sender->my_id != i) {
+    //         int write_fd = fd[sender->my_id][i][1];
+    //         if (write(write_fd, msg, sizeof(Message)) == -1) {
+    //             perror("write");
+    //             return -1;
+    //         }
+    //     } 
+    // }
     return 0;
 }
 
 
 int receive_any(void * self, Message * msg){
-    struct Actor *receiver = (struct Actor *)self;
-    for (uint8_t i = 0; i <= children_number; i++) {
-        if (receiver->my_id != i) {
-            int read_fd = fd[receiver->my_id][i][0];
-            if (read(read_fd, msg, sizeof(Message)) == -1) {
-                perror("read");
-                return -1;
-            }
-        }
-    }
+    // struct Actor *receiver = (struct Actor *)self;
+    // for (uint8_t i = 0; i <= children_number; i++) {
+    //     if (receiver->my_id != i) {
+    //         int read_fd = fd[receiver->my_id][i][0];
+    //         if (read(read_fd, msg, sizeof(Message)) == -1) {
+    //             perror("read");
+    //             return -1;
+    //         }
+    //         last_recieved_message[i] = msg->s_header.s_type;
+    //     }
+    // }
     return 0;
 }
 
@@ -157,34 +160,42 @@ void leave_needed_pipes(local_id id, int* f2) {
     if (id == PARENT_ID) {
         for (int8_t i = 0; i <= children_number; i++) {
             for (int8_t j = 0; j <= children_number; j++) {
-                close(fd[i][j][1]);
-                sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
-                write(*f2, buffer2, strlen(buffer2));
-
-                if (i != PARENT_ID) {
-                    close(fd[i][j][0]);
-                    sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                if (i != j) {
+                    close(fd[i][j][1]);
+                    is_closed[i][j] += 2;
+                    sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
                     write(*f2, buffer2, strlen(buffer2));
+
+                    if (i != PARENT_ID) {
+                        close(fd[i][j][0]);
+                        is_closed[i][j] += 1;
+                        sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                        write(*f2, buffer2, strlen(buffer2));
+                    }
                 }
             }
         }
     }
     else {
         for (int8_t i = 0; i <= children_number; i++) {
-            for (int8_t j = 0; j <= children_number-i; j++) {
-                if (j == PARENT_ID) {
-                    close(fd[i][j][0]);
-                    sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
-                    write(*f2, buffer2, strlen(buffer2));
-                } 
-                else if (i != id) {
-                    close(fd[i][j][0]);
-                    sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
-                    write(*f2, buffer2, strlen(buffer2));
-
-                    close(fd[i][j][1]);
-                    sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
-                    write(*f2, buffer2, strlen(buffer2));
+            for (int8_t j = 0; j <= children_number; j++) {
+                if (i != j) {
+                    if (j == PARENT_ID) {
+                        close(fd[i][j][1]);
+                        is_closed[i][j] += 1;
+                        sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                        write(*f2, buffer2, strlen(buffer2));
+                    }
+                    else if (i != id) {
+                        close(fd[i][j][0]);
+                        is_closed[i][j] += 1;
+                        sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
+                        write(*f2, buffer2, strlen(buffer2));
+                        close(fd[i][j][1]);
+                        is_closed[i][j] += 2;
+                        sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
+                        write(*f2, buffer2, strlen(buffer2));
+                    }
                 }
             }
         }
@@ -193,12 +204,12 @@ void leave_needed_pipes(local_id id, int* f2) {
 
 
 int prepare_for_work(struct Actor *dad, struct Actor *daughter){
+    sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
     Message msg = make_a_message(STARTED, buffer);
     if (send_multicast(&daughter, &msg) != children_number)
         return 1;
     while (1) {
         if (receive_any(&daughter, &msg) == children_number - 1) {
-            sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
             break;
         }
     }
@@ -213,7 +224,26 @@ int at_work(struct Actor *dad, struct Actor *daughter){
 }
 
 
+//
 int before_a_sleep(struct Actor *dad, struct Actor *daughter){
+    Message done_message = make_a_message(DONE, "I'm done, dude");
+    if (send_multicast(daughter, &done_message) != 0) {
+        return 1;
+    }
+    int received_all_done = 0;
+    Message msg;
+    // while (received_all_done == 0) {
+    //     received_all_done = 1;
+    //     if (receive_any(daughter, &msg) != 0) {
+    //         return 1;
+    //     }
+    //     for (int i = 0; i <= children_number; i++) {
+    //         if (last_recieved_message[i] != DONE) {
+    //             received_all_done = 0;
+    //             break;
+    //         }
+    //     }
+    // }   
     sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
     return 0;
 }
@@ -284,7 +314,27 @@ int main(int argc, char *argv[]) {
             write(f1, buffer, strlen(buffer));
         else
             exit(1);
+        //Check fd    
+        for (int i = 0; i <= children_number; i++) {
+            printf("%d ", daughter.my_id);
+            for (int j = 0; j <= children_number; j++) {
+            printf("%3d ", is_closed[i][j]); // Используйте %2d для выравнивания чисел по правому краю
+        }
+        printf("\n"); // Переход на следующую строку после каждой строки массива
+        }
+        //End of check fd
 
+        //Check read
+        Message msg;
+        int read_fd = fd[daughter.my_id][daughter.my_id-1][0];
+            if (read(read_fd, &msg, sizeof(Message)) == -1) {
+                // perror("read");
+                printf("Process %d Can't read\n", daughter.my_id);
+            } else {
+                printf("Process %d Can read\n", daughter.my_id);
+            }
+            last_recieved_message[daughter.my_id-1] = msg.s_header.s_type;
+        //End of check read
         if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
             write(f1, buffer, strlen(buffer));
         else
@@ -295,6 +345,15 @@ int main(int argc, char *argv[]) {
     else{
         leave_needed_pipes(father.my_id, &f2); //Close extra pipes for main processes
         int status;
+         //Check fd    
+        for (int i = 0; i <= children_number; i++) {
+            printf("%d ", father.my_id);
+            for (int j = 0; j <= children_number; j++) {
+            printf("%3d ", is_closed[i][j]); // Используйте %2d для выравнивания чисел по правому краю
+        }
+        printf("\n"); // Переход на следующую строку после каждой строки массива
+        }
+        //End of check fd
         while (1)
             if (wait(&status) > 0) break; //Waiting for the end of child processes 
         //Closing of files
