@@ -8,15 +8,7 @@
 #include "common.h"
 #include "ipc.h"
 #include "pa1.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <string.h>
-
-#define im_not_a_father father.my_pid != getpid()
-
+#include "pa1_custom.h"
 
 static const char * const events_log;
 static const char * const pipes_log;
@@ -26,17 +18,11 @@ static const char * const log_received_all_started_fmt;
 static const char * const log_done_fmt;
 static const char * const log_received_all_done_fmt;
 
-static const char * const pipe_closed_read_from_for =
-    "Pipe closed in process %d for reading into %d process from %d process.\n";
-    
-static const char * const pipe_closed_write_from_into =
-    "Pipe closed in process %d for writing from %d process into %d process.\n";
+static const char * const pipe_closed_read_from_for;
+static const char * const pipe_closed_write_from_into;
+static const char * const pipe_opened;
 
-static const char * const pipe_opened =
-    "Pipes opened for writing/reading %d.\n";
-
-static char buffer[50];
-static char buffer2[50];   
+static char buffer[50], buffer2[50]; 
 static int fd[16][16][2];
 static uint8_t children_number;
 
