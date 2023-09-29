@@ -14,6 +14,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <string.h>
+#include <time.h>
 
 #define im_not_a_father father.my_pid != getpid()
 

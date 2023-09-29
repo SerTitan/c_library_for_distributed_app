@@ -83,17 +83,43 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter){
     }
 }
 
+Message make_a_message(MessageType messageType, const char *message) {
+    Message msg;
+
+    msg.s_header.s_magic = MESSAGE_MAGIC;
+    msg.s_header.s_payload_len = strlen(message);
+    
+    switch (messageType) {
+        case STARTED:
+            msg.s_header.s_type = STARTED;
+            break;
+        case DONE:
+            msg.s_header.s_type = DONE;
+            break;
+        default:
+            msg.s_header.s_type = ACK; 
+            break;
+    }
+
+    strncpy(msg.s_payload, message, sizeof(msg.s_payload));
+    
+    return msg;
+}
+
+
+
 int send_multicast(void * self, const Message * msg) {
     struct Actor *sender = (struct Actor *)self;
     for (uint8_t i = 0; i <= children_number; i++) {
         if (sender->my_id != i) {
             int write_fd = fd[sender->my_id][i][1];
             if (write(write_fd, msg, sizeof(Message)) == -1) {
-            perror("write");
-            return -1;
-    }
+                perror("write");
+                return -1;
+            }
         } 
     }
+    return 0;
 }
 
 
@@ -108,6 +134,7 @@ int receive_any(void * self, Message * msg){
             }
         }
     }
+    return 0;
 }
 
 
@@ -115,11 +142,13 @@ int send(void * self, local_id dst, const Message * msg) {
     // TODO
     // struct Actor *daughter = (struct Actor *)self;
     // write(fd[daughter->my_id+dst][1], msg, sizeof(Message));
+    return 0;
 }
 
 
 int receive(void * self, local_id from, Message * msg) {
     //read(fd[from][0], );
+    return 0;
 }
 
 
@@ -131,11 +160,11 @@ void leave_needed_pipes(local_id id, int* f2) {
                 close(fd[i][j][1]);
                 sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
                 write(*f2, buffer2, strlen(buffer2));
+
                 if (i != PARENT_ID) {
                     close(fd[i][j][0]);
                     sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
                     write(*f2, buffer2, strlen(buffer2));
-                    
                 }
             }
         }
@@ -152,10 +181,10 @@ void leave_needed_pipes(local_id id, int* f2) {
                     close(fd[i][j][0]);
                     sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
                     write(*f2, buffer2, strlen(buffer2));
+
                     close(fd[i][j][1]);
                     sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
                     write(*f2, buffer2, strlen(buffer2));
-                    
                 }
             }
         }
@@ -163,11 +192,12 @@ void leave_needed_pipes(local_id id, int* f2) {
 }
 
 
-bool prepare_for_work(struct Actor *dad, struct Actor *daughter){
-    if (send_multicast() != children_number)
-        return -1;
-    while (1)
-        if (receive_any() == children_number - 1) {
+int prepare_for_work(struct Actor *dad, struct Actor *daughter){
+    Message msg = make_a_message(STARTED, buffer);
+    if (send_multicast(&daughter, &msg) != children_number)
+        return 1;
+    while (1) {
+        if (receive_any(&daughter, &msg) == children_number - 1) {
             sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
             break;
         }
@@ -176,14 +206,16 @@ bool prepare_for_work(struct Actor *dad, struct Actor *daughter){
 }
 
 
-void at_work(struct Actor *dad, struct Actor *daughter){
+int at_work(struct Actor *dad, struct Actor *daughter){
     //Some kind of work
     sprintf(buffer, log_done_fmt, daughter->my_id);
+    return 0;
 }
 
 
-void before_a_sleep(struct Actor *dad, struct Actor *daughter){
+int before_a_sleep(struct Actor *dad, struct Actor *daughter){
     sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
+    return 0;
 }
 
 
@@ -241,14 +273,23 @@ int main(int argc, char *argv[]) {
         leave_needed_pipes(daughter.my_id, &f2); //Close extra pipes for child processes
 
         write(f1, buffer, strlen(buffer));
-        prepare_for_work(&father, &daughter); //Synchronization before useful work
+        //if (prepare_for_work(&father, &daughter) == 0) { //Synchronization before useful work
+            //printf("Пока не пишем.");
+            //write(f1, buffer, strlen(buffer)); 
+        //}
+        //else
+        //exit(1);
 
-        at_work(&father, &daughter); //Useful work
-        write(f1, buffer, strlen(buffer)); 
+        if (at_work(&father, &daughter) == 0) //Useful work
+            write(f1, buffer, strlen(buffer));
+        else
+            exit(1);
 
-        before_a_sleep(&father, &daughter); //Synchronization after useful work
-        write(f1, buffer, strlen(buffer));
-
+        if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
+            write(f1, buffer, strlen(buffer));
+        else
+            exit(1);
+            
         exit(0);
     }
     else{
