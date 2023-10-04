@@ -142,9 +142,12 @@ int receive_any(void * self, Message * msg){
 
 
 int send(void * self, local_id dst, const Message * msg) {
-    // TODO
-    // struct Actor *daughter = (struct Actor *)self;
-    // write(fd[daughter->my_id+dst][1], msg, sizeof(Message));
+    struct Actor *sender = (struct Actor *)self;
+    int write_fd = fd[sender->my_id][dst][1];
+    if (write(write_fd, msg, sizeof(Message)) == -1) {
+            perror("write");
+            return -1;
+    }
     return 0;
 }
 
@@ -300,15 +303,15 @@ int main(int argc, char *argv[]) {
     become_a_dad(&father, &daughter);
 
     if (im_not_a_father){
-        leave_needed_pipes(daughter.my_id, &f2); //Close extra pipes for child processes
+        // leave_needed_pipes(daughter.my_id, &f2); //Close extra pipes for child processes
 
         write(f1, buffer, strlen(buffer));
-        //if (prepare_for_work(&father, &daughter) == 0) { //Synchronization before useful work
-            //printf("Пока не пишем.");
-            //write(f1, buffer, strlen(buffer)); 
-        //}
-        //else
-        //exit(1);
+        if (prepare_for_work(&father, &daughter) == 0) { //Synchronization before useful work
+            printf("Пока не пишем.");
+            write(f1, buffer, strlen(buffer)); 
+        }
+        else
+            exit(1);
 
         if (at_work(&father, &daughter) == 0) //Useful work
             write(f1, buffer, strlen(buffer));
@@ -324,23 +327,30 @@ int main(int argc, char *argv[]) {
         // }
         //End of check fd
 
-        
+
         if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
             write(f1, buffer, strlen(buffer));
         else
             exit(1);
+
         //Check read
-        Message msg;
-        int read_fd = fd[daughter.my_id][daughter.my_id-1][0];
-            if (read(read_fd, &msg, sizeof(Message)) == -1) {
-                perror("read");
-                printf("Process %d Can't read\n", daughter.my_id);
-            } else {
-                printf("Process %d Can read\n", daughter.my_id);
-                printf("%d", msg.s_header.s_magic);
-            }
-            last_recieved_message[daughter.my_id-1] = msg.s_header.s_type;
-        //End of check read
+        Message msg = make_a_message(STARTED, "Are you gay?");
+        if (daughter.my_id != children_number) {
+            send(&daughter, daughter.my_id + 1, &msg);
+        }
+        
+        if (daughter.my_id != 1) {
+            int read_fd = fd[daughter.my_id][daughter.my_id-1][0];
+                if (read(read_fd, &msg, sizeof(Message)) == -1) {
+                    perror("read");
+                    printf("Process %d Can't read\n", daughter.my_id);
+                } else {
+                    printf("Process %d Can read\n", daughter.my_id);
+                    printf("%d", msg.s_header.s_magic);
+                }
+                last_recieved_message[daughter.my_id-1] = msg.s_header.s_type;
+            //End of check read
+        }
         exit(0);
     }
     else{
