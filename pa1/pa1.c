@@ -5,6 +5,9 @@
  * @brief    C library for interprocess interaction
  */
 
+#include "common.h"
+#include "ipc.h"
+#include "pa1.h"
 #include "pa1_custom.h"
 
 static const char * const events_log;
@@ -19,28 +22,32 @@ static const char * const pipe_closed_read_from_for;
 static const char * const pipe_closed_write_from_into;
 static const char * const pipe_opened;
 
-static char buffer[50], buffer2[50]; 
-static MessageType last_recieved_message[16];
-static int is_closed[16][16] = {0}; //Number in cell i,j describe status of pipe between i and j. 0 - it's opened. 1 - it's closed for reading. 2 - it's closed for writing. 3 - it's completley closed;
+#define im_not_a_father father.my_pid != getpid()
+
+uint8_t children_number;
+static char buffer[50], buffer2[65]; 
+
+int *pipes_file;
 
 // initialization 
-void actor_dad(struct Actor *dad, pid_t zero_dad){
+static void actor_dad(struct Actor *dad, pid_t zero_dad){
     dad->my_id = PARENT_ID;
     dad->my_pid = zero_dad;
     dad->my_father_pid = -1;
     dad->my_role = DAD;
-    dad->my_kids= children_number;
+    dad->my_kids = children_number;
+    dad->my_sisters = 0;
 }
 
-void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid) {
+static void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid) {
     daughter->my_id = id;
     daughter->my_pid = pid;
     daughter->my_father_pid = father_pid;
     daughter->my_role = CHILD;
     daughter->my_kids = 0;
+    daughter->my_sisters = children_number-1;
     sprintf(buffer, log_started_fmt, id, pid, father_pid);
 }
-
 
 // pid named dad make fork kids times 
 void become_a_dad(struct Actor *dad, struct Actor *daughter){
@@ -65,74 +72,12 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter){
     }
 }
 
-
-
-
-//CLose unused pipes
-void leave_needed_pipes(local_id id, int* f2) {
-    // if (id == PARENT_ID) {
-    //     for (int8_t i = 0; i <= children_number; i++) {
-    //         for (int8_t j = 0; j <= children_number; j++) {
-    //             if (i != j) {
-    //                 close(fd[i][j][1]);
-    //                 is_closed[i][j] += 2;
-    //                 sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
-    //                 write(*f2, buffer2, strlen(buffer2));
-
-    //                 if (i != PARENT_ID) {
-    //                     close(fd[i][j][0]);
-    //                     is_closed[i][j] += 1;
-    //                     sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
-    //                     write(*f2, buffer2, strlen(buffer2));
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    // else {
-        for (int8_t i = 0; i <= children_number; i++) {
-            for (int8_t j = 0; j <= children_number; j++) {
-                if (i != j) {
-                    if (i != id) {
-                        close(fd[i][j][0]);
-                        is_closed[i][j] += 1;
-                        sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
-                        write(*f2, buffer2, strlen(buffer2));
-                        close(fd[i][j][1]);
-                        is_closed[i][j] += 2;
-                        sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
-                        write(*f2, buffer2, strlen(buffer2));
-                    }
-                }
-            }
-        }
-    }
-// }
-
-void close_rest_of_pipes(local_id id, int* f2) {
-    for (int8_t i = 0; i <= children_number; i++) {
-            for (int8_t j = 0; j <= children_number; j++) {
-                if (i != j) {
-                    if (i == id) {
-                        close(fd[i][j][0]);
-                        is_closed[i][j] += 1;
-                        sprintf(buffer2, pipe_closed_read_from_for, id, i, j);
-                        write(*f2, buffer2, strlen(buffer2));
-                        close(fd[i][j][1]);
-                        is_closed[i][j] += 2;
-                        sprintf(buffer2, pipe_closed_write_from_into, id, i, j);
-                        write(*f2, buffer2, strlen(buffer2));
-                    }
-                }
-            }
-        }
-}
-
 Message make_a_message(MessageType messageType, const char *message) {
     Message msg;
 
     msg.s_header.s_magic = MESSAGE_MAGIC;
     msg.s_header.s_payload_len = strlen(message);
+    msg.s_header.s_local_time = time(NULL);
     
     switch (messageType) {
         case STARTED:
@@ -152,16 +97,24 @@ Message make_a_message(MessageType messageType, const char *message) {
 }
 
 
+
 int prepare_for_work(struct Actor *dad, struct Actor *daughter){
-    sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
     Message msg = make_a_message(STARTED, buffer);
-    if (send_multicast(&daughter, &msg) != children_number)
+    if (send_multicast(&daughter, &msg) != 0){
+        printf("Write error\n");
         return 1;
-    while (1) {
-        if (receive_any(&daughter, &msg) == children_number - 1) {
+    }
+    printf("Start to receive\n");
+    int counter = 0;
+    while (counter < 1000) {
+        if (receive_any(&daughter, &msg) == 0) {
             break;
         }
     }
+    if (counter == 1000) {
+        return -1;
+    }
+    sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
     return 0;
 }
 
@@ -175,25 +128,11 @@ int at_work(struct Actor *dad, struct Actor *daughter){
 
 //
 int before_a_sleep(struct Actor *dad, struct Actor *daughter){
-    Message done_message = make_a_message(DONE, "I'm done, dude");
+    Message done_message = make_a_message(DONE, buffer);
     if (send_multicast(daughter, &done_message) != 0) {
         return 1;
     }
-    // int received_all_done = 0;
-    // Message msg;
-    // while (received_all_done == 0) {
-    //     received_all_done = 1;
-    //     if (receive_any(daughter, &msg) != 0) {
-    //         return 1;
-    //     }
-    //     for (int i = 0; i <= children_number; i++) {
-    //         if (last_recieved_message[i] != DONE) {
-    //             received_all_done = 0;
-    //             break;
-    //         }
-    //     }
-    // }   
-    // sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
+    sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
     return 0;
 }
 
@@ -207,7 +146,7 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     else{
-        if (atoi(argv[2]) > MAX_PROCESS_ID || atoi(argv[2]) <= PARENT_ID){
+        if (atoi(argv[2]) > 10 || atoi(argv[2]) <= PARENT_ID){
             //printf("Некорректное количество процессов для создания (0 < x <= 15)!\n");
             exit(1);
         }   
@@ -216,30 +155,16 @@ int main(int argc, char *argv[]) {
     }
 
     //Try to create or open files
-    int f1 = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
-    int f2 = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
-    if (f1 == -1)
+    int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
+    int pipes_file = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
+    if (events_file == -1)
         exit(1);
-    if (f2 == -1)
+    if (pipes_file == -1)
         exit(1);
 
     //Make pipes
-    int num_of_pipes = 0;
-    for (int i = 0; i <= children_number; i++) {
-        for (int j = 0; j <= children_number; j++) {
-            if (i != j) {
-                if (pipe(fd[i][j]) == -1) {
-                perror("pipe");
-                exit(EXIT_FAILURE);
-            }
-            num_of_pipes++;
-            }
-        }
-    }
+    make_a_pipes(children_number);
     
-    sprintf(buffer2, pipe_opened, num_of_pipes);
-    write(f2, buffer2, strlen(buffer2));
-
     //The appearance of the father
     struct Actor father;
     actor_dad(&father, getpid());
@@ -249,77 +174,73 @@ int main(int argc, char *argv[]) {
     become_a_dad(&father, &daughter);
 
     if (im_not_a_father){
-        leave_needed_pipes(daughter.my_id, &f2); //Close extra pipes for child processes
+        write(events_file, buffer, strlen(buffer));
 
-        write(f1, buffer, strlen(buffer));
-        if (prepare_for_work(&father, &daughter) == 0) { //Synchronization before useful work
-            printf("Пока не пишем.");
-            write(f1, buffer, strlen(buffer)); 
-        }
-        else
-            exit(1);
+        leave_needed_pipes(daughter.my_id, children_number); //Close extra pipes for child processes
 
-        if (at_work(&father, &daughter) == 0) //Useful work
-            write(f1, buffer, strlen(buffer));
-        else
-            exit(1);
-        //Check fd    
-        // for (int i = 0; i <= children_number; i++) {
-        //     printf("%d ", daughter.my_id);
-        //     for (int j = 0; j <= children_number; j++) {
-        //     printf("%3d ", is_closed[i][j]); // Используйте %2d для выравнивания чисел по правому краю
-        // }
-        // printf("\n"); // Переход на следующую строку после каждой строки массива
-        // }
-        //End of check fd
-
-
-        if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
-            write(f1, buffer, strlen(buffer));
-        else
-            exit(1);
-
-        //Check read
-        Message msg = make_a_message(STARTED, "Are you gay?");
+        /*
+        Message msg = make_a_message(STARTED, buffer);
         if (daughter.my_id != children_number) {
-            if (send(&daughter, daughter.my_id + 1, &msg) != 0) {
+            if (write(fd[daughter.my_id][daughter.my_id+1][1], &msg, sizeof(Message)) == -1) {
+                printf("error\n");
                 perror("write");
                 return -1;
             }
         }
-        
         if (daughter.my_id != 1) {
+            printf("trying to read\n");
             int read_fd = fd[daughter.my_id][daughter.my_id-1][0];
-                if (read(read_fd, &msg, sizeof(Message)) == -1) {
-                    perror("read");
-                    printf("Process %d Can't read\n", daughter.my_id);
-                } else {
-                    printf("Process %d Can read\n", daughter.my_id);
-                    printf("%d", msg.s_header.s_magic);
-                }
-                last_recieved_message[daughter.my_id-1] = msg.s_header.s_type;
+            if (read(read_fd, &msg, sizeof(Message)) == -1) {
+                printf("Process %d Can't read\n", daughter.my_id);
+                perror("read");
+            } else {
+                printf("Process %d Can read\n", daughter.my_id);
+                printf("%d\n", msg.s_header.s_magic);
+            }
+            printf("Wtf?!!\n");
+            last_recieved_message[daughter.my_id-1] = msg.s_header.s_type;
+            printf("My id is %d. I recieved %s\n", daughter.my_id, msg.s_payload);
             //End of check read
         }
-        close_rest_of_pipes(daughter.my_id, &f2);
+    
+        //printf("%s", buffer);
+        */
+        
+        printf("I'm here 1\n");
+        if (prepare_for_work(&father, &daughter) == 0) //Synchronization before useful work
+            write(events_file, buffer, strlen(buffer)); 
+        else
+            exit(1);
+
+        /*
+        printf("I'm here 2\n");
+        if (at_work(&father, &daughter) == 0) //Useful work
+            write(events_file, buffer, strlen(buffer));
+        else
+            exit(1);
+            
+        printf("I'm here 3\n");
+        if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
+            write(events_file, buffer, strlen(buffer));
+        else
+            exit(1);
+        */
+
+        close_rest_of_pipes(daughter.my_id, children_number);
+        close(events_file);
+        close(pipes_file);
         exit(0);
     }
     else{
-        leave_needed_pipes(father.my_id, &f2); //Close extra pipes for main processes
+        leave_needed_pipes(father.my_id, children_number); //Close extra pipes for main processes
         int status;
-         //Check fd    
-        // for (int i = 0; i <= children_number; i++) {
-        //     printf("%d ", father.my_id);
-        //     for (int j = 0; j <= children_number; j++) {
-        //     printf("%3d ", is_closed[i][j]); // Используйте %2d для выравнивания чисел по правому краю
-        // }
-        // printf("\n"); // Переход на следующую строку после каждой строки массива
-        // }
-        //End of check fd
+
         while (1)
             if (wait(&status) > 0) break; //Waiting for the end of child processes 
+
         //Closing of files
-        close(f1);
-        close(f2);
+        close(events_file);
+        close(pipes_file);
     } 
     return 0;
 }
