@@ -30,13 +30,15 @@ void make_a_pipes(int32_t children_number, int pipes_file);
 void leave_needed_pipes(local_id id, int32_t children_number);
 void close_rest_of_pipes(local_id id, int32_t children_number);
 void close_pipe_file();
+//int test_send(void * self, local_id dst, int *number);
+//int test_receive(void * self, local_id from, int *number);
 
 // initialization 
 static void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number){
     dad->my_id = PARENT_ID;
     dad->my_pid = zero_dad;
     dad->my_father_pid = -1;
-    dad->my_role = DAD;
+    //dad->my_role = DAD;
     dad->my_kids = children_number;
     dad->my_sisters = 0;
 }
@@ -45,10 +47,11 @@ static void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t
     daughter->my_id = id;
     daughter->my_pid = pid;
     daughter->my_father_pid = father_pid;
-    daughter->my_role = CHILD;
+    //daughter->my_role = CHILD;
     daughter->my_kids = 0;
     daughter->my_sisters = children_number-1;
     sprintf(buffer, log_started_fmt, id, pid, father_pid);
+    printf(log_started_fmt, id, pid, father_pid);
 }
 
 // pid named dad make fork kids times 
@@ -103,10 +106,10 @@ Message make_a_message(MessageType messageType, const char *message) {
 int prepare_for_work(struct Actor *dad, struct Actor *daughter){
     Message msg = make_a_message(STARTED, buffer);
     if (send_multicast(daughter, &msg) != 0){
-        // printf("Write error\n");
+        printf("Write error\n");
         return 1;
     }
-    // printf("Start to receive\n");
+    
     int counter = 0;
     while (counter < 1000) {
         if (receive_any(daughter, &msg) == 0) {
@@ -114,7 +117,7 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
         }
     }
     if (counter == 1000) {
-        // printf("Out of try\n");
+        printf("Out of try\n");
         return -1;
     }
     int recivied_started = 0;
@@ -123,9 +126,10 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
             recivied_started++;
         }
     }
-    // printf("%d\n", recivied_started);
+    
     if (recivied_started == daughter -> my_sisters) {
         sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
+        printf(log_received_all_started_fmt, daughter->my_id);
         return 0;
     }
     return -1;
@@ -135,6 +139,7 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
 int at_work(struct Actor *dad, struct Actor *daughter){
     //Some kind of work
     sprintf(buffer, log_done_fmt, daughter->my_id);
+    printf(log_done_fmt, daughter->my_id);
     return 0;
 }
 
@@ -142,7 +147,7 @@ int at_work(struct Actor *dad, struct Actor *daughter){
 int before_a_sleep(struct Actor *dad, struct Actor *daughter){
     Message done_message = make_a_message(DONE, buffer);
     if (send_multicast(daughter, &done_message) != 0) {
-        // printf("Write error\n");
+        printf("Write error\n");
         return 1;
     }
     int counter = 0;
@@ -152,7 +157,7 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
         }
     }
     if (counter == 1000) {
-        // printf("Out of try\n");
+        printf("Out of try\n");
         return -1;
     }
     int recivied_done = 0;
@@ -161,9 +166,9 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
             recivied_done++;
         }
     }
-    // printf("%d\n", recivied_started);
     if (recivied_done == daughter -> my_sisters) {
         sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
+        printf(log_received_all_done_fmt, daughter->my_id);
         return 0;
     }
     return -1;
@@ -178,7 +183,7 @@ int father_check_started(struct Actor *dad) {
         }
     }
     if (counter == 1000) {
-        // printf("Out of try\n");
+        printf("Out of try\n");
         return -1;
     }
     int recivied_started = 0;
@@ -187,12 +192,8 @@ int father_check_started(struct Actor *dad) {
             recivied_started++;
         }
     }
-    // printf("%d\n", recivied_started);
-    if (recivied_started == dad->my_kids) {
-        // printf("Great work, daddy\n");
-        // sprintf(buffer, log_received_all_started_fmt, PARENT_ID);
+    if (recivied_started == dad->my_kids)
         return 0;
-    }
     return -1;
 }
 
@@ -205,27 +206,17 @@ int father_want_some_sleep(struct Actor *dad) {
         }
     }
     if (counter == 1000) {
-        // printf("Out of try\n");
+        printf("Out of try\n");
         return -1;
     }
     int recivied_done = 0;
-    int recivied_started = 0;
-    int recivied_others = 0;
     for (int i = 1; i <= (dad->my_kids); i++) {
         if (last_recieved_message[i] == DONE && i != PARENT_ID) {
             recivied_done++;
-        } else if (last_recieved_message[i] == STARTED && i != PARENT_ID) {
-            recivied_started++;
-        } else if (i != PARENT_ID) {
-            recivied_others++;
         }
     }
-    // printf("%d %d %d\n", recivied_done, recivied_started, recivied_others);
-    if (recivied_done == dad->my_kids) {
-        // printf("Great work, daddy\n");
-        // sprintf(buffer, log_received_all_done_fmt, PARENT_ID);
+    if (recivied_done == dad->my_kids) 
         return 0;
-    }
     return -1;
 }
 
@@ -236,12 +227,12 @@ int main(int argc, char *argv[]) {
     // Check for parameters 
     int32_t children_number;
     if (argc != 3 || strcmp(argv[1], "-p") != 0 || atoi(argv[2]) == 0){
-        //printf("Неопознанный ключ или неверное количество аргументов! Пример: -p <количество процессов>\n");
+        // printf("Неопознанный ключ или неверное количество аргументов! Пример: -p <количество процессов>\n");
         exit(1);
     }
     else{
-        if (atoi(argv[2]) > 10 || atoi(argv[2]) <= PARENT_ID){
-            //printf("Некорректное количество процессов для создания (0 < x <= 15)!\n");
+        if (atoi(argv[2]) > 9 || atoi(argv[2]) <= PARENT_ID){
+            // printf("Некорректное количество процессов для создания (0 < x <= 9)!\n");
             exit(1);
         }   
         else
@@ -249,8 +240,10 @@ int main(int argc, char *argv[]) {
     }
 
     //Try to create or open files
-    int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
-    int pipes_file = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
+    int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT);
+    int pipes_file = open(pipes_log, O_WRONLY | O_APPEND | O_CREAT); 
+    // int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
+    // int pipes_file = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
     if (events_file == -1)
         exit(1);
     if (pipes_file == -1)
@@ -273,22 +266,17 @@ int main(int argc, char *argv[]) {
 
         leave_needed_pipes(daughter.my_id, children_number); //Close extra pipes for child processes
         
-
-        // printf("I'm here 1\n");
         if (prepare_for_work(&father, &daughter) == 0) //Synchronization before useful work
             write(events_file, buffer, strlen(buffer)); 
         else
             exit(1);
 
-        
-        // printf("I'm here 2\n");
         if (at_work(&father, &daughter) == 0) //Useful work
             write(events_file, buffer, strlen(buffer));
         else
             exit(1);
         
 
-        // printf("I'm here 3\n");
         if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
             write(events_file, buffer, strlen(buffer));
         else
@@ -302,16 +290,15 @@ int main(int argc, char *argv[]) {
     else{
         leave_needed_pipes(father.my_id, children_number); //Close extra pipes for main processes
         int status;
-        while (1) 
-            if (father_check_started(&father) == 0)break;
-        // write(events_file, buffer, strlen(buffer));
-        while (1)
-            if (wait(&status) > 0) break;
-        father_want_some_sleep(&father);
-        while (1)
-          if (father_want_some_sleep(&father) == 0) break; 
-            //Waiting for the end of child processes 
-        // write(events_file, buffer, strlen(buffer));
+        while (father_check_started(&father) != 0)continue;
+
+        while (children_number != 0) 
+            if ((status = waitpid(-1, NULL, WEXITED || WNOHANG)) <= 0)children_number--;
+
+        while(father_want_some_sleep(&father) != 0) continue;
+        close_rest_of_pipes(PARENT_ID, father.my_kids);
+        //Waiting for the end of child processes 
+        
         //Closing of files
         close(events_file);
         close_pipe_file();

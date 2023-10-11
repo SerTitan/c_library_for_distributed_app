@@ -10,9 +10,9 @@
 #include "pa1.h"
 #include "pa1_custom.h"
 
-int fd[12][12][2];
+static int fd[12][12][2];
 static int is_closed[12][12] = {{0}}; //Number in cell i,j describe status of pipe between i and j. 0 - it's opened. 1 - it's closed for reading. 2 - it's closed for writing. 3 - it's completley closed;
-char buff[65];
+static char buff[65];
 
 static int pipes_f;
 
@@ -43,20 +43,17 @@ void leave_needed_pipes(local_id id, int32_t children_number) {
     if (id == PARENT_ID) {
         for (int32_t i = 0; i <= children_number; i++) {
             for (int32_t j = 0; j <= children_number; j++) {
-                if (i != j) {
-                    if (close(fd[i][j][1]) != 0) {
-                        //printf("Can't close pipe between %d and %d for writing in process %d", i, j, id);
-                        exit(1);
-                    }
-                    is_closed[i][j] += 2;
-                    sprintf(buff, pipe_closed_write_from_into, id, i, j);
-                    write(pipes_f, buff, strlen(buff));
-                
-                    if (i != PARENT_ID) {
-                        if (close(fd[i][j][0])) {
-                            //printf("Can't close pipe between %d and %d for reading in process %d", i, j, id);
+                if (i != j) {     
+                    if (i != PARENT_ID) {               
+                        if (close(fd[i][j][1]) != 0)
                             exit(1);
-                        }
+                        is_closed[i][j] += 2;
+                        sprintf(buff, pipe_closed_write_from_into, id, i, j);
+                        write(pipes_f, buff, strlen(buff));
+                    }
+                    if (j != PARENT_ID) {
+                        if (close(fd[i][j][0]))
+                            exit(1);
                         is_closed[i][j] += 1;
                         sprintf(buff, pipe_closed_read_from_for, id, i, j);
                         write(pipes_f, buff, strlen(buff));
@@ -69,19 +66,16 @@ void leave_needed_pipes(local_id id, int32_t children_number) {
         for (int32_t i = 0; i <= children_number; i++) {
             for (int32_t j = 0; j <= children_number; j++) {
                 if (i != j) {
-                    if (i != id) {
-                        if (close(fd[i][j][0]) != 0) {
-                            //printf("Can't close pipe between %d and %d for reading in process %d", i, j, id);
+                    if (j != id) {
+                        if (close(fd[i][j][0]) != 0)
                             exit(1);
-                        }
-                        
                         is_closed[i][j] += 1;
                         sprintf(buff, pipe_closed_read_from_for, id, i, j);
                         write(pipes_f, buff, strlen(buff));
-                        if (close(fd[i][j][1])) {
-                            //printf("Can't close pipe between %d and %d for writing in process %d", i, j, id);
+                    }
+                    if (i != id) {
+                        if (close(fd[i][j][1]))
                             exit(1);
-                        }
                         is_closed[i][j] += 2;
                         sprintf(buff, pipe_closed_write_from_into, id, i, j);
                         write(pipes_f, buff, strlen(buff));
@@ -96,22 +90,20 @@ void close_rest_of_pipes(local_id id, int32_t children_number) {
     for (int32_t i = 0; i <= children_number; i++) {
         for (int32_t j = 0; j <= children_number; j++) {
             if (i != j) {
-                if (i == id) {
-                    if (close(fd[i][j][0]) != 0) {
-                            //printf("Can't close pipe between %d and %d for reading in process %d", i, j, id);
-                            exit(1);
-                    }
+                if (is_closed[i][j] == 0 || is_closed[i][j] == 2) {
+                    if (close(fd[i][j][0]) != 0) 
+                        exit(1);
                     is_closed[i][j] += 1;
                     sprintf(buff, pipe_closed_read_from_for, id, i, j);
                     write(pipes_f, buff, strlen(buff));
-                    if (close(fd[i][j][1])) {
-                            //printf("Can't close pipe between %d and %d for writing in process %d", i, j, id);
-                            exit(1);
-                    }
+                }
+                if (is_closed[i][j] == 1 || is_closed[i][j] == 0) {
+                    if (close(fd[i][j][1])) 
+                        exit(1);
                     is_closed[i][j] += 2;
                     sprintf(buff, pipe_closed_write_from_into, id, i, j);
-                    write(pipes_f, buff, strlen(buff));         
-                }
+                    write(pipes_f, buff, strlen(buff));   
+                }      
             }
         }
     }
@@ -119,17 +111,16 @@ void close_rest_of_pipes(local_id id, int32_t children_number) {
 
 int send_multicast(void * self, const Message * msg) {
     struct Actor *sender = (struct Actor *)self;
-    //printf("%d\n", sender->my_sisters);
-    for (int32_t i = 0; i <= sender->my_sisters+1; i++) {
+    int32_t senders = sender->my_sisters+1;;
+    if (sender->my_kids != 0)
+        senders = sender->my_kids;
+    for (int32_t i = 0; i <= senders; i++) {
         if (sender->my_id != i) {
             int write_fd = fd[sender->my_id][i][1];
-            // printf("Try to write\n");
             if (write(write_fd, msg, sizeof(MessageHeader) + (msg->s_header.s_payload_len)) == -1) {
                 perror("write");
                 return -1;
             }
-            else
-                sprintf(buff, write_to_pipe, sender->my_id, i);
         } 
     }
     return 0;
@@ -143,10 +134,11 @@ int receive_any(void * self, Message * msg){
         recievers = receiver->my_sisters+1;
     else
         recievers = receiver->my_kids;
-    for (int32_t i = 0; i <= recievers; i++) {
+                        
+    for (int32_t i = 1; i <= recievers; i++) {
         if (receiver->my_id != i) {
-            int read_fd = fd[receiver->my_id][i][0];
-            if (read(read_fd, msg, sizeof(Message)) == -1) {
+            int read_fd = fd[i][receiver->my_id][0];
+            if (read(read_fd, msg, sizeof(MessageHeader) + (msg->s_header.s_payload_len)) == -1) {
                 perror("read");
                 return -1;
             }
@@ -168,7 +160,36 @@ int send(void * self, local_id dst, const Message * msg) {
 }
 
 
+//Tests
+/*
 int receive(void * self, local_id from, Message * msg) {
-    //read(fd[from][0], );
     return 0;
 }
+
+int test_send(void * self, local_id dst, int* number) {
+    struct Actor *sender = (struct Actor *)self;
+    int write_fd = fd[sender->my_id][dst][1];
+    if (write(write_fd, number, sizeof(int)) == -1) {
+            perror("write");
+            return -1;
+    }
+    return 0;
+}
+
+int test_receive(void * self, local_id from, int* number) {
+    struct Actor *receiver = (struct Actor *)self;
+    int32_t recievers;
+    if (receiver->my_kids == 0)
+        recievers = receiver->my_sisters+1;
+    else
+        recievers = receiver->my_kids;
+    int read_fd = fd[from][receiver->my_id][0];
+            if (read(read_fd, number, sizeof(int)) == -1) {
+                // printf("Read error\n");
+                perror("read");
+                return -1;
+            }
+            // printf("Process %d. Read succed\n", receiver->my_id);
+    return 0;
+}
+*/
