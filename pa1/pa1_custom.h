@@ -41,8 +41,8 @@ struct Actor {
     local_id my_id;
     pid_t my_pid;
     pid_t my_father_pid;
-    uint8_t my_kids;
-    uint8_t my_sisters;
+    int32_t my_kids;
+    int32_t my_sisters;
     enum _role my_role;
 };
 

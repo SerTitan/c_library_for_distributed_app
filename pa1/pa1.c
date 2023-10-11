@@ -24,13 +24,15 @@ static const char * const pipe_opened;
 
 #define im_not_a_father father.my_pid != getpid()
 
-uint8_t children_number;
-static char buffer[50], buffer2[65]; 
+static char buffer[50]; 
 
-int *pipes_file;
+void make_a_pipes(int32_t children_number, int pipes_file);
+void leave_needed_pipes(local_id id, int32_t children_number);
+void close_rest_of_pipes(local_id id, int32_t children_number);
+void close_pipe_file();
 
 // initialization 
-static void actor_dad(struct Actor *dad, pid_t zero_dad){
+static void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number){
     dad->my_id = PARENT_ID;
     dad->my_pid = zero_dad;
     dad->my_father_pid = -1;
@@ -39,7 +41,7 @@ static void actor_dad(struct Actor *dad, pid_t zero_dad){
     dad->my_sisters = 0;
 }
 
-static void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid) {
+static void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid, int32_t children_number) {
     daughter->my_id = id;
     daughter->my_pid = pid;
     daughter->my_father_pid = father_pid;
@@ -50,12 +52,12 @@ static void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t
 }
 
 // pid named dad make fork kids times 
-void become_a_dad(struct Actor *dad, struct Actor *daughter){
+void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_number){
     //first_daughter
     uint8_t fork_result = fork();
     local_id id = PARENT_ID + 1;
     if (fork_result == 0) {
-        actor_daughter(daughter, id, getpid(), dad->my_pid);
+        actor_daughter(daughter, id, getpid(), dad->my_pid, children_number);
         return; 
     }
     
@@ -66,7 +68,7 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter){
             id++;
         } 
         if (fork_result == 0 && i == dad->my_kids - 1){
-            actor_daughter(daughter, id, getpid(), dad->my_pid);
+            actor_daughter(daughter, id, getpid(), dad->my_pid, children_number);
             return;
         }
     }
@@ -100,22 +102,33 @@ Message make_a_message(MessageType messageType, const char *message) {
 
 int prepare_for_work(struct Actor *dad, struct Actor *daughter){
     Message msg = make_a_message(STARTED, buffer);
-    if (send_multicast(&daughter, &msg) != 0){
-        printf("Write error\n");
+    if (send_multicast(daughter, &msg) != 0){
+        // printf("Write error\n");
         return 1;
     }
-    printf("Start to receive\n");
+    // printf("Start to receive\n");
     int counter = 0;
     while (counter < 1000) {
-        if (receive_any(&daughter, &msg) == 0) {
+        if (receive_any(daughter, &msg) == 0) {
             break;
         }
     }
     if (counter == 1000) {
+        // printf("Out of try\n");
         return -1;
     }
-    sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
-    return 0;
+    int recivied_started = 0;
+    for (int i = 1; i <= (daughter->my_sisters)+1; i++) {
+        if (last_recieved_message[i] == STARTED && i != daughter->my_id) {
+            recivied_started++;
+        }
+    }
+    // printf("%d\n", recivied_started);
+    if (recivied_started == daughter -> my_sisters) {
+        sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
+        return 0;
+    }
+    return -1;
 }
 
 
@@ -126,21 +139,102 @@ int at_work(struct Actor *dad, struct Actor *daughter){
 }
 
 
-//
 int before_a_sleep(struct Actor *dad, struct Actor *daughter){
     Message done_message = make_a_message(DONE, buffer);
     if (send_multicast(daughter, &done_message) != 0) {
+        // printf("Write error\n");
         return 1;
     }
-    sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
-    return 0;
+    int counter = 0;
+    while (counter < 1000) {
+        if (receive_any(daughter, &done_message) == 0) {
+            break;
+        }
+    }
+    if (counter == 1000) {
+        // printf("Out of try\n");
+        return -1;
+    }
+    int recivied_done = 0;
+    for (int i = 1; i <= (daughter->my_sisters)+1; i++) {
+        if (last_recieved_message[i] == DONE && i != daughter->my_id) {
+            recivied_done++;
+        }
+    }
+    // printf("%d\n", recivied_started);
+    if (recivied_done == daughter -> my_sisters) {
+        sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
+        return 0;
+    }
+    return -1;
 }
 
+int father_check_started(struct Actor *dad) {
+    Message msg = make_a_message(STARTED, buffer);
+    int counter = 0;
+    while (counter < 1000) {
+        if (receive_any(dad, &msg) == 0) {
+            break;
+        }
+    }
+    if (counter == 1000) {
+        // printf("Out of try\n");
+        return -1;
+    }
+    int recivied_started = 0;
+    for (int i = 1; i <= (dad->my_kids); i++) {
+        if (last_recieved_message[i] == STARTED && i != PARENT_ID) {
+            recivied_started++;
+        }
+    }
+    // printf("%d\n", recivied_started);
+    if (recivied_started == dad->my_kids) {
+        // printf("Great work, daddy\n");
+        // sprintf(buffer, log_received_all_started_fmt, PARENT_ID);
+        return 0;
+    }
+    return -1;
+}
+
+int father_want_some_sleep(struct Actor *dad) {
+    Message done_message = make_a_message(DONE, buffer);
+    int counter = 0;
+    while (counter < 1000) {
+        if (receive_any(dad, &done_message) == 0) {
+            break;
+        }
+    }
+    if (counter == 1000) {
+        // printf("Out of try\n");
+        return -1;
+    }
+    int recivied_done = 0;
+    int recivied_started = 0;
+    int recivied_others = 0;
+    for (int i = 1; i <= (dad->my_kids); i++) {
+        if (last_recieved_message[i] == DONE && i != PARENT_ID) {
+            recivied_done++;
+        } else if (last_recieved_message[i] == STARTED && i != PARENT_ID) {
+            recivied_started++;
+        } else if (i != PARENT_ID) {
+            recivied_others++;
+        }
+    }
+    // printf("%d %d %d\n", recivied_done, recivied_started, recivied_others);
+    if (recivied_done == dad->my_kids) {
+        // printf("Great work, daddy\n");
+        // sprintf(buffer, log_received_all_done_fmt, PARENT_ID);
+        return 0;
+    }
+    return -1;
+}
 
 int main(int argc, char *argv[]) {
-
+    for (int i = 0; i < 16; i++) {
+        last_recieved_message[i] = STOP;
+    }
     // Check for parameters 
-    children_number = 0;
+    int32_t children_number;
     if (argc != 3 || strcmp(argv[1], "-p") != 0 || atoi(argv[2]) == 0){
         //printf("Неопознанный ключ или неверное количество аргументов! Пример: -p <количество процессов>\n");
         exit(1);
@@ -163,84 +257,64 @@ int main(int argc, char *argv[]) {
         exit(1);
 
     //Make pipes
-    make_a_pipes(children_number);
-    
+    make_a_pipes(children_number, pipes_file);
+    close(pipes_file);
+
     //The appearance of the father
     struct Actor father;
-    actor_dad(&father, getpid());
+    actor_dad(&father, getpid(), children_number);
 
     //Start of fork (born of daughters)
     struct Actor daughter;
-    become_a_dad(&father, &daughter);
+    become_a_dad(&father, &daughter, children_number);
 
     if (im_not_a_father){
         write(events_file, buffer, strlen(buffer));
 
         leave_needed_pipes(daughter.my_id, children_number); //Close extra pipes for child processes
-
-        /*
-        Message msg = make_a_message(STARTED, buffer);
-        if (daughter.my_id != children_number) {
-            if (write(fd[daughter.my_id][daughter.my_id+1][1], &msg, sizeof(Message)) == -1) {
-                printf("error\n");
-                perror("write");
-                return -1;
-            }
-        }
-        if (daughter.my_id != 1) {
-            printf("trying to read\n");
-            int read_fd = fd[daughter.my_id][daughter.my_id-1][0];
-            if (read(read_fd, &msg, sizeof(Message)) == -1) {
-                printf("Process %d Can't read\n", daughter.my_id);
-                perror("read");
-            } else {
-                printf("Process %d Can read\n", daughter.my_id);
-                printf("%d\n", msg.s_header.s_magic);
-            }
-            printf("Wtf?!!\n");
-            last_recieved_message[daughter.my_id-1] = msg.s_header.s_type;
-            printf("My id is %d. I recieved %s\n", daughter.my_id, msg.s_payload);
-            //End of check read
-        }
-    
-        //printf("%s", buffer);
-        */
         
-        printf("I'm here 1\n");
+
+        // printf("I'm here 1\n");
         if (prepare_for_work(&father, &daughter) == 0) //Synchronization before useful work
             write(events_file, buffer, strlen(buffer)); 
         else
             exit(1);
 
-        /*
-        printf("I'm here 2\n");
+        
+        // printf("I'm here 2\n");
         if (at_work(&father, &daughter) == 0) //Useful work
             write(events_file, buffer, strlen(buffer));
         else
             exit(1);
-            
-        printf("I'm here 3\n");
+        
+
+        // printf("I'm here 3\n");
         if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
             write(events_file, buffer, strlen(buffer));
         else
             exit(1);
-        */
-
+        
         close_rest_of_pipes(daughter.my_id, children_number);
         close(events_file);
-        close(pipes_file);
+        close_pipe_file();
         exit(0);
     }
     else{
         leave_needed_pipes(father.my_id, children_number); //Close extra pipes for main processes
         int status;
-
+        while (1) 
+            if (father_check_started(&father) == 0)break;
+        // write(events_file, buffer, strlen(buffer));
         while (1)
-            if (wait(&status) > 0) break; //Waiting for the end of child processes 
-
+            if (wait(&status) > 0) break;
+        father_want_some_sleep(&father);
+        while (1)
+          if (father_want_some_sleep(&father) == 0) break; 
+            //Waiting for the end of child processes 
+        // write(events_file, buffer, strlen(buffer));
         //Closing of files
         close(events_file);
-        close(pipes_file);
+        close_pipe_file();
     } 
     return 0;
 }
