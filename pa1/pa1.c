@@ -115,6 +115,7 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
         if (receive_any(daughter, &msg) == 0) {
             break;
         }
+        counter++;
     }
     if (counter == 1000) {
         printf("Out of try\n");
@@ -155,6 +156,7 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
         if (receive_any(daughter, &done_message) == 0) {
             break;
         }
+        counter++;
     }
     if (counter == 1000) {
         printf("Out of try\n");
@@ -162,9 +164,8 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
     }
     int recivied_done = 0;
     for (int i = 1; i <= (daughter->my_sisters)+1; i++) {
-        if (last_recieved_message[i] == DONE && i != daughter->my_id) {
+        if (last_recieved_message[i] == DONE && i != daughter->my_id)
             recivied_done++;
-        }
     }
     if (recivied_done == daughter -> my_sisters) {
         sprintf(buffer, log_received_all_done_fmt, daughter->my_id);
@@ -181,6 +182,7 @@ int father_check_started(struct Actor *dad) {
         if (receive_any(dad, &msg) == 0) {
             break;
         }
+        counter++;
     }
     if (counter == 1000) {
         printf("Out of try\n");
@@ -188,9 +190,8 @@ int father_check_started(struct Actor *dad) {
     }
     int recivied_started = 0;
     for (int i = 1; i <= (dad->my_kids); i++) {
-        if (last_recieved_message[i] == STARTED && i != PARENT_ID) {
+        if (last_recieved_message[i] == STARTED && i != PARENT_ID)
             recivied_started++;
-        }
     }
     if (recivied_started == dad->my_kids)
         return 0;
@@ -204,6 +205,7 @@ int father_want_some_sleep(struct Actor *dad) {
         if (receive_any(dad, &done_message) == 0) {
             break;
         }
+        counter++;
     }
     if (counter == 1000) {
         printf("Out of try\n");
@@ -211,9 +213,8 @@ int father_want_some_sleep(struct Actor *dad) {
     }
     int recivied_done = 0;
     for (int i = 1; i <= (dad->my_kids); i++) {
-        if (last_recieved_message[i] == DONE && i != PARENT_ID) {
+        if (last_recieved_message[i] == DONE && i != PARENT_ID)
             recivied_done++;
-        }
     }
     if (recivied_done == dad->my_kids) 
         return 0;
