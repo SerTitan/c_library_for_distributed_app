@@ -138,11 +138,15 @@ int receive_any(void * self, Message * msg){
     for (int32_t i = 1; i <= recievers; i++) {
         if (receiver->my_id != i) {
             int read_fd = fd[i][receiver->my_id][0];
-            if (read(read_fd, msg, sizeof(MessageHeader) + (msg->s_header.s_payload_len)) == -1) {
+            if (read(read_fd, msg, sizeof(MessageHeader)) == -1) {
                 perror("read");
                 return -1;
             }
             last_recieved_message[i] = msg->s_header.s_type;
+            if (read(read_fd, msg, msg->s_header.s_payload_len) == -1) {
+                perror("read tail");
+                return -1;
+            }
         }
     }
     return 0;

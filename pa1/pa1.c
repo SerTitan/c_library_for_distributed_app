@@ -24,7 +24,7 @@ static const char * const pipe_opened;
 
 #define im_not_a_father father.my_pid != getpid()
 
-static char buffer[50]; 
+static char buffer[50] = ""; 
 
 void make_a_pipes(int32_t children_number, int pipes_file);
 void leave_needed_pipes(local_id id, int32_t children_number);
