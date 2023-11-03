@@ -15,6 +15,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <time.h>
+#include "banking.h"
 
 MessageType last_recieved_message[16];
 
@@ -29,6 +30,7 @@ static const char * const pipe_opened =
 
 static const char * const write_to_pipe =
     "Write from %d to %d completed\n";
+
 
 struct Actor {
     /*
@@ -45,7 +47,7 @@ struct Actor {
     pid_t my_father_pid;
     int32_t my_kids;
     int32_t my_sisters;
-    balance_t  s_amount;
+    balance_t  my_balance;
     //enum _role my_role;
 };
 

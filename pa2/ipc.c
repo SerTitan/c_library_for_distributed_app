@@ -30,6 +30,28 @@ void make_a_pipes(int32_t children_number, int pipes_file){
                     perror("pipe");
                     exit(1);
                 }
+                // int flags = fcntl(fd[i][j][1], F_GETFL, 0);
+                // if (flags == -1) {
+                //     perror("fcntl");
+                //     exit(1);
+                // }
+
+                // flags |= O_NONBLOCK;
+                // if (fcntl(fd[i][j][1], F_SETFL, flags) == -1) {
+                //     perror("fcntl");
+                //     exit(1);
+                // }
+                // flags = fcntl(fd[j][i][0], F_GETFL, 0);
+                // if (flags == -1) {
+                //     perror("fcntl");
+                //     exit(1);
+                // }
+
+                // flags |= O_NONBLOCK;
+                // if (fcntl(fd[j][i][0], F_SETFL, flags) == -1) {
+                //     perror("fcntl");
+                //     exit(1);
+                // }
                 num_of_pipes++;
             }
         }
@@ -139,17 +161,19 @@ int send_multicast(void * self, const Message * msg) {
 
 int receive(void * self, local_id from, Message * msg) {
     struct Actor *receiver = (struct Actor *)self;
+    MessageHeader msg_hdr;
     if (receiver->my_id == from) {
         perror("read");
         return -1;
     }
     int read_fd = fd[from][receiver->my_id][0];
-    if (read(read_fd, msg, sizeof(MessageHeader)) == -1) {
+    if (read(read_fd, &msg_hdr, sizeof(MessageHeader)) < (int)sizeof(MessageHeader)) {
         perror("read");
         return -1;
     }
+    msg->s_header = msg_hdr;
     last_recieved_message[from] = msg->s_header.s_type;
-    if (read(read_fd, msg, msg->s_header.s_payload_len) == -1) {
+    if (read(read_fd, msg->s_payload, msg->s_header.s_payload_len) < msg->s_header.s_payload_len) {
         perror("read tail");
         return -1;
     }
@@ -164,22 +188,16 @@ int receive_any(void * self, Message * msg){
         recievers = receiver->my_sisters+1;
     else
         recievers = receiver->my_kids;
-                        
-    for (int32_t i = 1; i <= recievers; i++) {
+    for (int32_t i = 0; i <= recievers; i++) {
         if (receiver->my_id != i) {
-            int read_fd = fd[i][receiver->my_id][0];
-            if (read(read_fd, msg, sizeof(MessageHeader)) == -1) {
-                perror("read");
-                return -1;
-            }
-            last_recieved_message[i] = msg->s_header.s_type;
-            if (read(read_fd, msg, msg->s_header.s_payload_len) == -1) {
-                perror("read tail");
-                return -1;
+            // int read_fd = fd[i][receiver->my_id][0];
+            printf("Process %d trying to read\n", receiver->my_id);
+            if (receive(receiver, i, msg) == 0) {
+                return 0;
             }
         }
     }
-    return 0;
+    return 1;
 }
 
 
