@@ -116,13 +116,16 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
     }
     
     int counter = 0;
-    while (counter < 1000) {
+    while (counter < 10000) {
         int32_t recievers;
         recievers = daughter->my_sisters+1;
         for (int32_t i = 1; i <= recievers; i++) {
             if (daughter->my_id != i) {
                 if (receive(daughter, i, &msg) != 0) {
-                    return -1;
+                    break;
+                }
+                if (msg.s_header.s_type == STARTED) {
+                    last_recieved_message[i] = STARTED;
                 }
             }
         }
@@ -133,15 +136,14 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
                 recivied_started++;
             }
         }
-    
         if (recivied_started == daughter -> my_sisters) {
             sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
             printf(log_received_all_started_fmt, daughter->my_id);
             return 0;
         }
     }
-    if (counter == 1000) {
-        printf("Out of try\n");
+    if (counter == 10000) {
+        // printf("Out of try\n");
         return -1;
     }
     return -1;
@@ -167,8 +169,10 @@ int at_work(struct Actor *dad, struct Actor *daughter){
     //     printf("Process %d received %d\n", daughter->my_id, some_message.s_header.s_type);
         
     // }
-    // Message some_message = make_a_message(ACK, "");
-    // while (some_message.s_header.s_type != STOP) {
+    Message some_message = make_a_message(ACK, "");
+    while (some_message.s_header.s_type != STOP) {
+        receive(daughter, 0, &some_message);
+    }
     //     while (receive_any(daughter, &some_message) != 0) {
     //         // printf("%s\n", "still receiving");
     //     }
@@ -183,7 +187,7 @@ int at_work(struct Actor *dad, struct Actor *daughter){
 
 int before_a_sleep(struct Actor *dad, struct Actor *daughter){
     sprintf(buffer, log_done_fmt, daughter->my_id);
-    printf(log_done_fmt, daughter->my_id);
+    
     // Message done_message = make_a_message(DONE, buffer);
     Message done_message = make_a_message(DONE, "");
     if (send_multicast(daughter, &done_message) != 0) {
@@ -191,12 +195,15 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
         return 1;
     }
     int counter = 0;
-    while (counter < 1000) {
+    while (counter < 10000) {
         int32_t recievers= daughter->my_sisters+1;
         for (int32_t i = 1; i <= recievers; i++) {
             if (daughter->my_id != i) {
                 if (receive(daughter, i, &done_message) != 0) {
-                    return -1;
+                    break;
+                }
+                if (done_message.s_header.s_type == DONE) {
+                    last_recieved_message[i] = DONE;
                 }
             }
         }
@@ -212,8 +219,8 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
             return 0;
         }
     }
-    if (counter == 1000) {
-        printf("Out of try\n");
+    if (counter == 10000) {
+        // printf("Out of try\n");
         return -1;
     }
     return -1;
@@ -223,12 +230,15 @@ int father_check_started(struct Actor *dad) {
     // Message msg = make_a_message(STARTED, buffer);
     Message msg = make_a_message(STARTED, "");
     int counter = 0;
-    while (counter < 1000) {
+    while (counter < 10000) {
         int32_t recievers = dad->my_kids;
         for (int32_t i = 1; i <= recievers; i++) {
             if (dad->my_id != i) {
                 if (receive(dad, i, &msg) != 0) {
-                    return -1;
+                    break;
+                }
+                if (msg.s_header.s_type == STARTED) {
+                    last_recieved_message[i] = STARTED;
                 }
             }
         }
@@ -238,11 +248,13 @@ int father_check_started(struct Actor *dad) {
             if (last_recieved_message[i] == STARTED && i != PARENT_ID)
                 recivied_started++;
         }
-        if (recivied_started == dad->my_kids)
+        if (recivied_started == dad->my_kids) {
+            printf(log_received_all_started_fmt, dad->my_id);
             return 0;
         }
-    if (counter == 1000) {
-        printf("Out of try\n");
+        }
+    if (counter == 10000) {
+        // printf("Out of try\n");
         return -1;
     }
     
@@ -253,12 +265,15 @@ int father_want_some_sleep(struct Actor *dad) {
     // Message done_message = make_a_message(DONE, buffer);
     Message done_message = make_a_message(DONE, "");
     int counter = 0;
-    while (counter < 1000) {
+    while (counter < 10000) {
         int32_t recievers = dad->my_kids;
         for (int32_t i = 1; i <= recievers; i++) {
             if (dad->my_id != i) {
                 if (receive(dad, i, &done_message) != 0) {
-                    return -1;
+                    break;
+                }
+                if (done_message.s_header.s_type == DONE) {
+                    last_recieved_message[i] = DONE;
                 }
             }
         }
@@ -268,11 +283,14 @@ int father_want_some_sleep(struct Actor *dad) {
             if (last_recieved_message[i] == DONE && i != PARENT_ID)
                 recivied_done++;
         }
-        if (recivied_done == dad->my_kids) 
+        if (recivied_done == dad->my_kids){
+            printf(log_received_all_done_fmt, dad->my_id);
             return 0;
         }
-    if (counter == 1000) {
-        printf("Out of try\n");
+            
+        }
+    if (counter == 10000) {
+        // printf("Out of try\n");
         return -1;
     }
     return -1;

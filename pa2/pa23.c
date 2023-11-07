@@ -103,9 +103,9 @@ int main(int argc, char * argv[]) {
     // int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
     // int pipes_file = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
     if (events_file == -1)
-        exit(1);
+        exit(5);
     if (pipes_file == -1)
-        exit(1);
+        exit(6);
 
     //Make pipes
     make_a_pipes(children_number, pipes_file);
@@ -123,22 +123,23 @@ int main(int argc, char * argv[]) {
         write(events_file, buffer, strlen(buffer));
 
         leave_needed_pipes(daughter.my_id, children_number); //Close extra pipes for child processes
-        
-        if (prepare_for_work(&father, &daughter) == 0) //Synchronization before useful work
-            write(events_file, buffer, strlen(buffer)); 
-        else
-            exit(1);
+        // Message some_message = make_a_message(ACK, "");
+        // receive(&daughter, 1, &some_message);
+        while (prepare_for_work(&father, &daughter) != 0) { //Synchronization before useful work
+            continue;
+        } 
+        write(events_file, buffer, strlen(buffer)); 
 
         if (at_work(&father, &daughter) == 0) //Useful work
             write(events_file, buffer, strlen(buffer));
         else
-            exit(1);
+            exit(8);
         
-
-        if (before_a_sleep(&father, &daughter) == 0) //Synchronization after useful work
-            write(events_file, buffer, strlen(buffer));
-        else
-            exit(1);
+        printf(log_done_fmt, daughter.my_id);
+        while (before_a_sleep(&father, &daughter) != 0) { //Synchronization after useful work
+            continue;
+        }
+        write(events_file, buffer, strlen(buffer));
         
         close_rest_of_pipes(daughter.my_id, children_number);
         close(events_file);
@@ -148,16 +149,63 @@ int main(int argc, char * argv[]) {
     else{
         leave_needed_pipes(father.my_id, children_number); //Close extra pipes for main processes
         int status;
-        while (father_check_started(&father) != 0)continue;
+        int flag = 0;
+        while (father_check_started(&father) != 0){
+            if (flag % 50 == 0) {
+                for (int i = 0; i <= father.my_kids; i++) {
+                    if (last_recieved_message[i] == STARTED) {
+                        printf("%d STARTED\n", i);
+                    }
+                    else if (last_recieved_message[i] == DONE) {
+                        printf("%d DONE\n", i);
+                    }
+                    else if (last_recieved_message[i] == ACK) {
+                        printf("%d ACK\n", i);
+                    }
+                    else if (last_recieved_message[i] == STOP) {
+                        printf("%d STOP\n", i);
+                    }
+                    else {
+                        printf("%d something else\n", i);
+                    }
+                }
+            }
+            flag++;
+            // exit(20);
+            continue;
+        }
         // transfer(&father, 1, 2, 10);
         //TODO
         //bank_robbery(parent_data);
-        // Message stopMessage = make_a_message(STOP, "");
-        // send_multicast(&father, &stopMessage);
+        Message stopMessage = make_a_message(STOP, "");
+        send_multicast(&father, &stopMessage);
         while (children_number != 0) 
             if ((status = waitpid(-1, NULL, WEXITED || WNOHANG)) <= 0)children_number--;
 
-        while(father_want_some_sleep(&father) != 0) continue;
+        flag = 0;
+        while(father_want_some_sleep(&father) != 0) {
+            if (flag % 50 == 0) {
+                for (int i = 0; i <= father.my_kids; i++) {
+                    if (last_recieved_message[i] == STARTED) {
+                        printf("%d STARTED\n", i);
+                    }
+                    else if (last_recieved_message[i] == DONE) {
+                        printf("%d DONE\n", i);
+                    }
+                    else if (last_recieved_message[i] == ACK) {
+                        printf("%d ACK\n", i);
+                    }
+                    else if (last_recieved_message[i] == STOP) {
+                        printf("%d STOP\n", i);
+                    }
+                    else {
+                        printf("%d something else\n", i);
+                    }
+                }
+            }
+            flag++;
+            // exit(21);
+        }
         close_rest_of_pipes(PARENT_ID, father.my_kids);
         //Waiting for the end of child processes 
         
