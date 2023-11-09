@@ -33,6 +33,11 @@ void close_pipe_file();
 //int test_send(void * self, local_id dst, int *number);
 //int test_receive(void * self, local_id from, int *number);
 
+void int_strtok(char* string, int* val){
+    *val = atoi(string);
+    string = strtok(NULL, " ");
+}
+
 // initialization 
 void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number){
     dad->my_id = PARENT_ID;
@@ -41,28 +46,28 @@ void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number){
     //dad->my_role = DAD;
     dad->my_kids = children_number;
     dad->my_sisters = 0;
-    dad->my_balance = 0;
+    dad->my_balance.s_balance = 0;
 }
 
-void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid, int32_t children_number, uint8_t balance) {
+void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid, int32_t children_number, balance_t balance) {
     daughter->my_id = id;
     daughter->my_pid = pid;
     daughter->my_father_pid = father_pid;
     //daughter->my_role = CHILD;
     daughter->my_kids = 0;
     daughter->my_sisters = children_number-1;
-    daughter->my_balance = 0;
+    daughter->my_balance.s_balance = balance;
     sprintf(buffer, log_started_fmt, id, pid, father_pid);
     printf(log_started_fmt, id, pid, father_pid);
 }
 
 // pid named dad make fork kids times 
-void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_number){
+void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_number, balance_t* daughter_bank_account){
     //first_daughter
     uint8_t fork_result = fork();
     local_id id = PARENT_ID + 1;
     if (fork_result == 0) {
-        actor_daughter(daughter, id, getpid(), dad->my_pid, children_number, 0);
+        actor_daughter(daughter, id, getpid(), dad->my_pid, children_number, daughter_bank_account[0]);
         return; 
     }
     
@@ -73,7 +78,7 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_nu
             id++;
         } 
         if (fork_result == 0 && i == dad->my_kids - 1){
-            actor_daughter(daughter, id, getpid(), dad->my_pid, children_number, i);
+            actor_daughter(daughter, id, getpid(), dad->my_pid, children_number, daughter_bank_account[i]);
             return;
         }
     }
@@ -107,7 +112,7 @@ Message make_a_message(MessageType messageType, const char *message) {
 
 
 
-int prepare_for_work(struct Actor *dad, struct Actor *daughter){
+int prepare_for_work(struct Actor *daughter){
     // Message msg = make_a_message(STARTED, buffer);
     Message msg = make_a_message(STARTED, "");
     if (send_multicast(daughter, &msg) != 0){
@@ -120,7 +125,7 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
         int32_t recievers;
         recievers = daughter->my_sisters+1;
         for (int32_t i = 1; i <= recievers; i++) {
-            if (daughter->my_id != i) {
+            if (daughter->my_id != i && last_recieved_message[i] != STARTED) {
                 if (receive(daughter, i, &msg) != 0) {
                     break;
                 }
@@ -136,7 +141,7 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
                 recivied_started++;
             }
         }
-        if (recivied_started == daughter -> my_sisters) {
+        if (recivied_started == daughter->my_sisters) {
             sprintf(buffer, log_received_all_started_fmt, daughter->my_id);
             printf(log_received_all_started_fmt, daughter->my_id);
             return 0;
@@ -150,42 +155,49 @@ int prepare_for_work(struct Actor *dad, struct Actor *daughter){
 }
 
 
-int at_work(struct Actor *dad, struct Actor *daughter){
-    //Some kind of work
-    // if (daughter->my_id != 1) {
-    //     Message some_message = make_a_message(CS_REPLY, buffer);
-    //     printf("Process %d starting to receive testing message\n", daughter->my_id);
-    //     receive(daughter, 1, &some_message);
-    //     if (some_message.s_header.s_type == CS_REPLY) {
-    //         printf("Process %d received what he sent\n", daughter->my_id);
-    //     } else if (some_message.s_header.s_type == DONE) {
-    //         printf("Process %d received DONE... somehow\n", daughter->my_id);
-    //     } else if (some_message.s_header.s_type == ACK) {
-    //         printf("Process %d received ACK. Shet\n", daughter->my_id);  
-    //     }  
-    //     else {
-    //         printf("Process %d received some shit\n", daughter->my_id);
-    //     }
-    //     printf("Process %d received %d\n", daughter->my_id, some_message.s_header.s_type);
-        
-    // }
+int at_work(struct Actor *daughter){
+   //Some kind of work
+   int src, dst, balance_amount;
+   balance_t amount;
     Message some_message = make_a_message(ACK, "");
     while (some_message.s_header.s_type != STOP) {
-        receive(daughter, 0, &some_message);
+        some_message = make_a_message(ACK, "");
+        receive_any(daughter, &some_message);
+        if (some_message.s_header.s_type == TRANSFER) {
+            char *ptr = strtok(some_message.s_payload, " ");
+            int_strtok(ptr, &src);
+            int_strtok(ptr, &dst);
+            int_strtok(ptr, &balance_amount);
+            amount = (balance_t) balance_amount;
+            char order_string[100];
+            sprintf(order_string, "%d %d %d", src, dst, amount);
+            printf("%s\n", order_string);
+            if (daughter->my_id == src) {
+                if (amount >= daughter->my_balance.s_balance) {
+                    printf("Account %d don't have enough money", daughter->my_id);
+                    continue;
+                }
+                daughter->my_balance.s_balance = daughter->my_balance.s_balance - amount;
+                send(daughter, dst, &some_message);
+                
+            } else if (daughter->my_id == dst) {
+                daughter->my_balance.s_balance = daughter->my_balance.s_balance + amount;
+                //Message tranferDoneMessage = make_a_message(ACK, "");
+                send(daughter, PARENT_ID, &some_message);
+            } else {
+                printf("What the fuck\n");
+                continue;
+            }
+            // char order_string[100];
+            // sprintf(order_string, "%d %d %d", src, dst, amount);
+            // printf("%s\n", order_string);
+        }
     }
-    //     while (receive_any(daughter, &some_message) != 0) {
-    //         // printf("%s\n", "still receiving");
-    //     }
-    //     // printf("%s\n", "succed receive_any");
-    //     if (some_message.s_header.s_type == TRANSFER) {
-    //         printf("%s\n", some_message.s_payload);
-    //     }
-    // }
     return 0;
 }
 
 
-int before_a_sleep(struct Actor *dad, struct Actor *daughter){
+int before_a_sleep(struct Actor *daughter){
     sprintf(buffer, log_done_fmt, daughter->my_id);
     
     // Message done_message = make_a_message(DONE, buffer);
@@ -198,7 +210,7 @@ int before_a_sleep(struct Actor *dad, struct Actor *daughter){
     while (counter < 10000) {
         int32_t recievers= daughter->my_sisters+1;
         for (int32_t i = 1; i <= recievers; i++) {
-            if (daughter->my_id != i) {
+            if (daughter->my_id != i && last_recieved_message[i] != DONE) {
                 if (receive(daughter, i, &done_message) != 0) {
                     break;
                 }
@@ -233,7 +245,7 @@ int father_check_started(struct Actor *dad) {
     while (counter < 10000) {
         int32_t recievers = dad->my_kids;
         for (int32_t i = 1; i <= recievers; i++) {
-            if (dad->my_id != i) {
+            if (dad->my_id != i && last_recieved_message[i] != STARTED) {
                 if (receive(dad, i, &msg) != 0) {
                     break;
                 }
@@ -252,7 +264,7 @@ int father_check_started(struct Actor *dad) {
             printf(log_received_all_started_fmt, dad->my_id);
             return 0;
         }
-        }
+    }
     if (counter == 10000) {
         // printf("Out of try\n");
         return -1;
@@ -268,7 +280,7 @@ int father_want_some_sleep(struct Actor *dad) {
     while (counter < 10000) {
         int32_t recievers = dad->my_kids;
         for (int32_t i = 1; i <= recievers; i++) {
-            if (dad->my_id != i) {
+            if (dad->my_id != i && last_recieved_message[i] != DONE) {
                 if (receive(dad, i, &done_message) != 0) {
                     break;
                 }

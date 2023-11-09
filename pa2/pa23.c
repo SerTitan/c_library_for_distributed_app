@@ -10,7 +10,7 @@
 #include "pa1.h"
 #include "pa1_custom.h"
 #include "banking.h"
-
+#include <stdbool.h>
 
 static const char * const events_log;
 static const char * const pipes_log;
@@ -33,15 +33,15 @@ void leave_needed_pipes(local_id id, int32_t children_number);
 void close_rest_of_pipes(local_id id, int32_t children_number);
 void close_pipe_file();
 void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number);
-void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid, int32_t children_number);
-void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_number);
-int prepare_for_work(struct Actor *dad, struct Actor *daughter);
-int at_work(struct Actor *dad, struct Actor *daughter);
-int before_a_sleep(struct Actor *dad, struct Actor *daughter);
+void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid, int32_t children_number, balance_t balance);
+void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_number, balance_t daughter_bank_account[]);
+int prepare_for_work(struct Actor *daughter);
+int at_work(struct Actor *daughter);
+int before_a_sleep(struct Actor *daughter);
 int father_check_started(struct Actor *dad);
 int father_want_some_sleep(struct Actor *dad);
-// int receive(void * self, local_id from, Message * msg);
-// int send(void * self, local_id dst, const Message * msg);
+int receive(void * self, local_id from, Message * msg);
+int send(void * self, local_id dst, const Message * msg);
 Message make_a_message(MessageType messageType, const char *message);
 
 TransferOrder makeTransferOrder(local_id s_src, local_id s_dst, balance_t s_amount) {
@@ -73,35 +73,35 @@ int main(int argc, char * argv[]) {
     }
     // Check for parameters 
     int32_t children_number;
-    uint8_t bank_account[argc-3];
+    balance_t daughter_bank_account[argc-3];
     if (strcmp(argv[1], "-p") != 0 || atoi(argv[2]) == 0 || atoi(argv[2]) != argc-3){
-        printf("%s %s %d %d\n", argv[1], argv[2],argc-3, strcmp(argv[1], "-p"));
-        exit(2);
+        //printf("%s %s %d %d\n", argv[1], argv[2],argc-3, strcmp(argv[1], "-p"));
+        exit(1);
     }
     else{
         if (atoi(argv[2]) > 10 || atoi(argv[2]) <= PARENT_ID){
             //printf("Некорректное количество процессов для создания (0 < x <= 9)!\n");
-            exit(3);
+            exit(1);
         }   
         else {
             children_number = atoi(argv[2]);
             size_t i;
             for (i = 1; i <= children_number; i++){
                 if (atoi(argv[2+i]) > 0 && atoi(argv[2+i]) < 100) 
-                    bank_account[i-1] = atoi(argv[2+i]);
+                    daughter_bank_account[i-1] = atoi(argv[2+i]);
                 else {
                     //printf("Некорректный счет для %zu дочери (1 < x <= 99)!\n", i);
-                    exit(4);
+                    exit(1);
                 }
             }
         } 
     }
 
     //Try to create or open files
-    int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT);
-    int pipes_file = open(pipes_log, O_WRONLY | O_APPEND | O_CREAT); 
-    // int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
-    // int pipes_file = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
+    //int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT);
+    //int pipes_file = open(pipes_log, O_WRONLY | O_APPEND | O_CREAT); 
+    int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
+    int pipes_file = open(pipes_log, O_WRONLY | O_TRUNC | O_CREAT); 
     if (events_file == -1)
         exit(5);
     if (pipes_file == -1)
@@ -117,26 +117,24 @@ int main(int argc, char * argv[]) {
 
     //Start of fork (born of daughters)
     struct Actor daughter;
-    become_a_dad(&father, &daughter, children_number);
-
+    become_a_dad(&father, &daughter, children_number, daughter_bank_account);
     if (im_not_a_father){
         write(events_file, buffer, strlen(buffer));
 
         leave_needed_pipes(daughter.my_id, children_number); //Close extra pipes for child processes
         // Message some_message = make_a_message(ACK, "");
         // receive(&daughter, 1, &some_message);
-        while (prepare_for_work(&father, &daughter) != 0) { //Synchronization before useful work
+        while (prepare_for_work(&daughter) != 0) //Synchronization before useful work
             continue;
-        } 
         write(events_file, buffer, strlen(buffer)); 
-
-        if (at_work(&father, &daughter) == 0) //Useful work
+        
+        if (at_work(&daughter) == 0) //Useful work
             write(events_file, buffer, strlen(buffer));
         else
             exit(8);
         
         printf(log_done_fmt, daughter.my_id);
-        while (before_a_sleep(&father, &daughter) != 0) { //Synchronization after useful work
+        while (before_a_sleep(&daughter) != 0) { //Synchronization after useful work
             continue;
         }
         write(events_file, buffer, strlen(buffer));
@@ -174,9 +172,12 @@ int main(int argc, char * argv[]) {
             // exit(20);
             continue;
         }
+
         // transfer(&father, 1, 2, 10);
         //TODO
         //bank_robbery(parent_data);
+        // Message testTranferMessage = make_a_message(TRANSFER, "10 20 30");
+        // send_multicast(&father, &testTranferMessage);
         Message stopMessage = make_a_message(STOP, "");
         send_multicast(&father, &stopMessage);
         while (children_number != 0) 

@@ -47,7 +47,7 @@ struct Actor {
     pid_t my_father_pid;
     int32_t my_kids;
     int32_t my_sisters;
-    balance_t  my_balance;
+    BalanceState my_balance;
     //enum _role my_role;
 };
 

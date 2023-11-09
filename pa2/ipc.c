@@ -164,7 +164,7 @@ int send(void * self, local_id dst, const Message * msg) {
 
 int send_multicast(void * self, const Message * msg) {
     struct Actor *sender = (struct Actor *)self;
-    int32_t senders = sender->my_sisters+1;;
+    int32_t senders = sender->my_sisters+1;
     if (sender->my_kids != 0)
         senders = sender->my_kids;
     for (int32_t i = 0; i <= senders; i++) {
@@ -212,7 +212,7 @@ int receive_any(void * self, Message * msg){
     for (int32_t i = 0; i <= recievers; i++) {
         if (receiver->my_id != i) {
             // int read_fd = fd[i][receiver->my_id][0];
-            printf("Process %d trying to read\n", receiver->my_id);
+            // printf("Process %d trying to read\n", receiver->my_id);
             if (receive(receiver, i, msg) == 0) {
                 return 0;
             }
