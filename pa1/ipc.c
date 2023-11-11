@@ -181,34 +181,3 @@ int receive_any(void * self, Message * msg){
     }
     return 0;
 }
-
-
-//Tests
-/*
-int test_send(void * self, local_id dst, int* number) {
-    struct Actor *sender = (struct Actor *)self;
-    int write_fd = fd[sender->my_id][dst][1];
-    if (write(write_fd, number, sizeof(int)) == -1) {
-            perror("write");
-            return -1;
-    }
-    return 0;
-}
-
-int test_receive(void * self, local_id from, int* number) {
-    struct Actor *receiver = (struct Actor *)self;
-    int32_t recievers;
-    if (receiver->my_kids == 0)
-        recievers = receiver->my_sisters+1;
-    else
-        recievers = receiver->my_kids;
-    int read_fd = fd[from][receiver->my_id][0];
-            if (read(read_fd, number, sizeof(int)) == -1) {
-                // printf("Read error\n");
-                perror("read");
-                return -1;
-            }
-            // printf("Process %d. Read succed\n", receiver->my_id);
-    return 0;
-}
-*/

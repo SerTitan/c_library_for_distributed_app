@@ -30,8 +30,6 @@ void make_a_pipes(int32_t children_number, int pipes_file);
 void leave_needed_pipes(local_id id, int32_t children_number);
 void close_rest_of_pipes(local_id id, int32_t children_number);
 void close_pipe_file();
-//int test_send(void * self, local_id dst, int *number);
-//int test_receive(void * self, local_id from, int *number);
 
 // initialization 
 static void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number){
@@ -47,7 +45,6 @@ static void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t
     daughter->my_id = id;
     daughter->my_pid = pid;
     daughter->my_father_pid = father_pid;
-    //daughter->my_role = CHILD;
     daughter->my_kids = 0;
     daughter->my_sisters = children_number-1;
     sprintf(buffer, log_started_fmt, id, pid, father_pid);
@@ -83,18 +80,7 @@ Message make_a_message(MessageType messageType, const char *message) {
     msg.s_header.s_magic = MESSAGE_MAGIC;
     msg.s_header.s_payload_len = strlen(message);
     msg.s_header.s_local_time = time(NULL);
-    
-    switch (messageType) {
-        case STARTED:
-            msg.s_header.s_type = STARTED;
-            break;
-        case DONE:
-            msg.s_header.s_type = DONE;
-            break;
-        default:
-            msg.s_header.s_type = ACK; 
-            break;
-    }
+    msg.s_header.s_type = messageType;
 
     strncpy(msg.s_payload, message, sizeof(msg.s_payload));
     
