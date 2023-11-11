@@ -38,6 +38,7 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_nu
 int prepare_for_work(struct Actor *daughter);
 int at_work(struct Actor *daughter);
 int before_a_sleep(struct Actor *daughter);
+int check_recieve_again(struct Actor *daughter);
 int send_balance_history(struct Actor *daughter);
 
 //Stages of fathers's working process
@@ -49,6 +50,7 @@ int father_get_balance_history(struct Actor *dad);
 int receive(void * self, local_id from, Message * msg);
 int send(void * self, local_id dst, const Message * msg);
 Message make_a_message(MessageType messageType, const char *message);
+Message make_a_message_2(MessageType messageType, const void *message, size_t payload_size);
 
 
 TransferOrder makeTransferOrder(local_id s_src, local_id s_dst, balance_t s_amount) {
@@ -65,8 +67,7 @@ void transfer(void * parent_data, local_id src, local_id dst, balance_t amount) 
     TransferOrder order = makeTransferOrder(src, dst, amount);
     char order_string[100];
     sprintf(order_string, "%d %d %d", order.s_src, order.s_dst, order.s_amount);
-    Message to_src_message = make_a_message(TRANSFER, order_string);
-    
+    Message to_src_message = make_a_message_2(TRANSFER, &order, sizeof(TransferOrder));
     send(father, src, &to_src_message);
     while (to_src_message.s_header.s_type != ACK)
         receive(father, dst, &to_src_message);
@@ -103,10 +104,9 @@ int main(int argc, char * argv[]) {
             }
         } 
     }
-
     //Try to create or open files
-    //int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT);
-    int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
+    int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT);
+    //int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
     if (events_file == -1)
         exit(1);
 
@@ -136,12 +136,13 @@ int main(int argc, char * argv[]) {
         while (before_a_sleep(&daughter) != 0) { //Synchronization after useful work
             continue;
         }
-        // printf("I'm here\n");
+        if (check_recieve_again(&daughter) != 0) {
+            exit(10);
+        }
+        
         if (send_balance_history(&daughter) != 0) {
             exit(9);
         }
-        // printf("Now I'm here\n");
-        
         
         close_rest_of_pipes(daughter.my_id, children_number);
         exit(0);
@@ -152,7 +153,7 @@ int main(int argc, char * argv[]) {
         while (father_check_started(&father) != 0)
             continue;
 
-        bank_robbery(&father, father.my_kids);
+        bank_robbery(&father, (local_id) father.my_kids);
         
         Message stopMessage = make_a_message(STOP, "");
         send_multicast(&father, &stopMessage);
@@ -168,7 +169,6 @@ int main(int argc, char * argv[]) {
         close_rest_of_pipes(PARENT_ID, father.my_kids);
         
         close_events_file();
-        //print_history(all);
         sleep(1);
     } 
     return 0;

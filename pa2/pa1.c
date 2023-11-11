@@ -40,11 +40,14 @@ void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father
     daughter->my_kids = 0;
     daughter->my_sisters = children_number-1;
     daughter->my_balance.s_balance = balance;
+    daughter->my_balance.s_time = 0;
+    daughter->my_balance.s_balance_pending_in = 0;
     daughter->history.s_id = id;
     daughter->history.s_history[0] = daughter->my_balance;
     BalanceState nullBalance;
     nullBalance.s_balance = -1;
     nullBalance.s_time = -1;
+    nullBalance.s_balance_pending_in = 0;
     for (int i = 1; i < MAX_T; i++) {
         daughter->history.s_history[i] = nullBalance;
     }
@@ -68,7 +71,7 @@ void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_nu
             fork_result = fork();
             id++;
         } 
-        if (fork_result == 0 && i == dad->my_kids - 1){
+        if (fork_result == 0){
             actor_daughter(daughter, id, getpid(), dad->my_pid, children_number, daughter_bank_account[i]);
             return;
         }
@@ -81,11 +84,25 @@ Message make_a_message(MessageType messageType, const char *message) {
     
     msg.s_header.s_magic = MESSAGE_MAGIC;
     msg.s_header.s_payload_len = strlen(message);
-    msg.s_header.s_local_time = time(NULL);
+    // msg.s_header.s_local_time = time(NULL);
     msg.s_header.s_type = messageType;
-    // msg.s_header.s_local_time = get_physical_time();
+    msg.s_header.s_local_time = get_physical_time();
     memset(msg.s_payload, 0, sizeof(msg.s_payload));
     strncpy(msg.s_payload, message, sizeof(msg.s_payload));
+    
+    return msg;
+}
+
+Message make_a_message_2(MessageType messageType, void* message, size_t payload_size) {
+    Message msg;
+    
+    msg.s_header.s_magic = MESSAGE_MAGIC;
+    msg.s_header.s_payload_len = payload_size;
+    // msg.s_header.s_local_time = time(NULL);
+    msg.s_header.s_type = messageType;
+    msg.s_header.s_local_time = get_physical_time();
+    memset(msg.s_payload, 0, sizeof(msg.s_payload));
+    memcpy(msg.s_payload, message, sizeof(msg.s_payload));
     
     return msg;
 }
@@ -141,24 +158,23 @@ int at_work(struct Actor *daughter){
         some_message = make_a_message(ACK, "");
         receive_any(daughter, &some_message);
         if (some_message.s_header.s_type == TRANSFER) {
+            TransferOrder order;
+            memcpy(&order, some_message.s_payload, sizeof(some_message.s_payload));
             currentBallanceState.s_balance = -1;
             currentBallanceState.s_time = -1;
-            char *ptr = strtok(some_message.s_payload, " ");
-            src = atoi(ptr);
-            ptr = strtok(NULL, " ");
-            dst = atoi(ptr);
-            ptr = strtok(NULL, " ");
-            balance_amount = (balance_t) atoi(ptr);
-            // printf("%d %d %d\n", src, dst, balance_amount);
-            char order_string[100];
-            sprintf(order_string, "%d %d %d", src, dst, balance_amount);
+            
+            src = order.s_src;
+            dst = order.s_dst;
+            balance_amount = order.s_amount;
+            
             if (daughter->my_id == src) {
                 if (balance_amount >= daughter->my_balance.s_balance) {
                     printf("Account %d don't have enough money\n", daughter->my_id);
                     continue;
                 }
                 daughter->my_balance.s_balance = daughter->my_balance.s_balance - balance_amount;
-                some_message = make_a_message(TRANSFER, order_string);
+                some_message = make_a_message_2(TRANSFER, &order, sizeof(TransferOrder));
+                
                 send(daughter, dst, &some_message);
                 currentBallanceState.s_balance = daughter->my_balance.s_balance;
                 currentBallanceState.s_time = get_physical_time();
@@ -183,7 +199,8 @@ int at_work(struct Actor *daughter){
     if (currentBallanceState.s_time == -1)
         daughter->history.s_history_len = MAX_T;
     else
-        daughter->history.s_history_len = currentBallanceState.s_time;
+        daughter->history.s_history_len = currentBallanceState.s_time+1;
+    
     sprintf(buffer, log_done_fmt, get_physical_time(), daughter->my_id, daughter->my_balance.s_balance);
     return 0;
 }
@@ -211,7 +228,7 @@ int before_a_sleep(struct Actor *daughter){
         for (int i = 1; i <= (daughter->my_sisters)+1; i++)
             if (last_recieved_message[i] == DONE && i != daughter->my_id) recivied_done++;
             
-        if (recivied_done == daughter -> my_sisters) {
+        if (recivied_done == daughter->my_sisters) {
             sprintf(buffer, log_received_all_done_fmt, get_physical_time(), daughter->my_id);
             printf(log_received_all_done_fmt, get_physical_time(), daughter->my_id);
             write(events_f, buffer, strlen(buffer));
@@ -225,19 +242,71 @@ int before_a_sleep(struct Actor *daughter){
     return -1;
 }
 
+int check_recieve_again(struct Actor *daughter) {
+    int src, dst;
+    balance_t balance_amount;
+    Message some_message = make_a_message(ACK, "");
+    BalanceState currentBallanceState;
+    int counter = 0;
+    while (counter < 300) {
+        some_message = make_a_message(ACK, "");
+        receive_any(daughter, &some_message);
+        if (some_message.s_header.s_type == TRANSFER) {
+            TransferOrder order;
+            memcpy(&order, some_message.s_payload, sizeof(some_message.s_payload));
+            currentBallanceState.s_balance = -1;
+            currentBallanceState.s_time = -1;
+            src = order.s_src;
+            dst = order.s_dst;
+            balance_amount = order.s_amount;
+
+            if (daughter->my_id == src) {
+                if (balance_amount >= daughter->my_balance.s_balance) {
+                    printf("Account %d don't have enough money\n", daughter->my_id);
+                    continue;
+                }
+                daughter->my_balance.s_balance = daughter->my_balance.s_balance - balance_amount;
+                some_message = make_a_message_2(TRANSFER, &order, sizeof(TransferOrder));
+                send(daughter, dst, &some_message);
+                currentBallanceState.s_balance = daughter->my_balance.s_balance;
+                currentBallanceState.s_time = get_physical_time();
+                daughter->history.s_history[currentBallanceState.s_time] = currentBallanceState;
+                sprintf(buffer, log_transfer_out_fmt, currentBallanceState.s_time, src, balance_amount, dst);
+                printf(buffer, log_transfer_out_fmt, currentBallanceState.s_time, src, balance_amount, dst);
+                write(events_f, buffer, strlen(buffer));
+            } 
+            else if (daughter->my_id == dst) {
+                daughter->my_balance.s_balance = daughter->my_balance.s_balance + balance_amount;
+                Message tranferDoneMessage = make_a_message(ACK, "");
+                send(daughter, PARENT_ID, &tranferDoneMessage);
+                currentBallanceState.s_balance = daughter->my_balance.s_balance;
+                currentBallanceState.s_time = get_physical_time();
+                daughter->history.s_history[currentBallanceState.s_time] = currentBallanceState;
+                sprintf(buffer, log_transfer_in_fmt, get_physical_time(), dst, balance_amount, src);
+                printf(buffer, log_transfer_in_fmt, get_physical_time(), dst, balance_amount, src);
+                write(events_f, buffer, strlen(buffer));
+            }
+        }
+        counter++;
+    }
+    if (currentBallanceState.s_time == -1)
+        daughter->history.s_history_len = MAX_T;
+    else
+        daughter->history.s_history_len = currentBallanceState.s_time+1;
+    return 0;
+}
+
 int send_balance_history(struct Actor *daughter) {
-    char history_string[100];
-    sprintf(history_string, "%d %d", daughter->history.s_id,daughter->history.s_history_len);
-    for (timestamp_t i = 1; i <= daughter->history.s_history_len; i++) {
+    for (timestamp_t i = 1; i < daughter->history.s_history_len; i++) {
         if (daughter->history.s_history[i].s_time == -1) {
             daughter->history.s_history[i].s_time = i;
             daughter->history.s_history[i].s_balance = daughter->history.s_history[i-1].s_balance;
         }
-        sprintf(history_string, "%s %d %d", history_string ,daughter->history.s_history[i].s_time, daughter->history.s_history[i].s_balance);
+        daughter->history.s_history[i].s_balance_pending_in = 0;
     }
-    Message balanceHistoryMessage = make_a_message(BALANCE_HISTORY, history_string);
+    
+    Message balanceHistoryMessage = make_a_message_2(BALANCE_HISTORY, &(daughter->history), sizeof(BalanceHistory));
     send(daughter, PARENT_ID, &balanceHistoryMessage);
-    printf("%s\n", history_string);
     return 0;
 }
 
@@ -259,10 +328,8 @@ int father_check_started(struct Actor *dad) {
         for (int i = 1; i <= (dad->my_kids); i++)
             if (last_recieved_message[i] == STARTED && i != PARENT_ID) recivied_started++;
             
-        if (recivied_started == dad->my_kids) {
-            // printf(log_received_all_started_fmt, get_physical_time(), dad->my_id);
+        if (recivied_started == dad->my_kids)
             return 0;
-        }
     }
     if (counter == 10000) {
         // printf("Out of try\n");
@@ -289,11 +356,8 @@ int father_want_some_sleep(struct Actor *dad) {
         int recivied_done = 0;
         for (int i = 1; i <= (dad->my_kids); i++)
             if (last_recieved_message[i] == DONE && i != PARENT_ID) recivied_done++;
-        if (recivied_done == dad->my_kids){
-            // printf(log_received_all_done_fmt, get_physical_time(), dad->my_id);
+        if (recivied_done == dad->my_kids)
             return 0;
-        }
-            
         }
     if (counter == 10000) {
         // printf("Out of try\n");
@@ -302,9 +366,24 @@ int father_want_some_sleep(struct Actor *dad) {
     return -1;
 }
 
+AllHistory historyFormatting(AllHistory history, uint8_t max_history_len) {
+    for (uint8_t i = 0; i < history.s_history_len; i++) {
+        if (history.s_history[i].s_history_len < max_history_len) {
+            for (uint8_t j = history.s_history[i].s_history_len; j < max_history_len+1; j++) {
+                history.s_history[i].s_history[j].s_time = j;
+                history.s_history[i].s_history[j].s_balance = history.s_history[i].s_history[j-1].s_balance; 
+            }
+            history.s_history[i].s_history_len = max_history_len;
+        }
+    }
+    print_history(&history);
+    return history;
+}
+
 int father_get_balance_history(struct Actor *dad) {
     Message done_message = make_a_message(DONE, buffer);
-    int id, len, counter = 0;
+    int counter = 0;
+    uint8_t max_history_len = 0;
     AllHistory history;
     history.s_history_len = dad->my_kids;
     while (counter < 10000) {
@@ -316,24 +395,10 @@ int father_get_balance_history(struct Actor *dad) {
                 if (done_message.s_header.s_type == BALANCE_HISTORY) {
                     last_recieved_message[i] = BALANCE_HISTORY;
                     BalanceHistory currentBallanceHistory;
-                    char *ptr = strtok(done_message.s_payload, " ");
-                    id = atoi(ptr);
-                    ptr = strtok(NULL, " ");
-                    len = atoi(ptr);
-                    currentBallanceHistory.s_id = id;
-                    currentBallanceHistory.s_history_len = len;
-                    for (int j = 0; j < len; j++) {
-                        BalanceState currentState;
-                        ptr = strtok(NULL, " ");
-                        timestamp_t time = (timestamp_t) atoi(ptr);
-                        ptr = strtok(NULL, " ");
-                        balance_t balance = (balance_t) atoi(ptr);
-                        currentState.s_time = time;
-                        currentState.s_balance = balance;
-                        currentState.s_balance_pending_in = 0;
-                        currentBallanceHistory.s_history[j] = currentState;
-                    }
-                    history.s_history[id] = currentBallanceHistory;
+                    memcpy(&currentBallanceHistory, done_message.s_payload, sizeof(BalanceHistory));
+                    history.s_history[currentBallanceHistory.s_id-1] = currentBallanceHistory;
+                    if (currentBallanceHistory.s_history_len > max_history_len)
+                        max_history_len = currentBallanceHistory.s_history_len;
                 }
             }
         }
@@ -343,8 +408,7 @@ int father_get_balance_history(struct Actor *dad) {
             if (last_recieved_message[i] == BALANCE_HISTORY && i != PARENT_ID) recivied_history++;
     
         if (recivied_history == dad->my_kids){
-            // printf(log_received_all_done_fmt, get_physical_time(), dad->my_id);
-            print_history(&history);
+            history = historyFormatting(history, max_history_len);
             return 0;
         }
             

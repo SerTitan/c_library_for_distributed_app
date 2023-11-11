@@ -31,21 +31,11 @@ static const char * const write_to_pipe =
     "Write from %d to %d completed\n";
 
 struct Actor {
-    /*
-    enum _role{
-        DAD,
-        WAITING_TO_BE_DED,
-        DAD_IS_DED, // After all child becomes students 
-        CHILD,
-        STUDENT //After sent all messages
-    };
-    */
     local_id my_id;
     pid_t my_pid;
     pid_t my_father_pid;
     int32_t my_kids;
     int32_t my_sisters;
-    //enum _role my_role;
 };
 
 #endif // __IFMO_DISTRIBUTED_CLASS_PA1_CUSTOM__H
