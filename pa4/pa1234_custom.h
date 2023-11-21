@@ -15,9 +15,12 @@
 #include <fcntl.h>
 #include <string.h>
 #include <time.h>
+#include <stdbool.h> 
 #include "banking.h"
 
 MessageType last_recieved_message[10];
+
+bool critical_area_enable;
 
 static const char * const pipe_closed_read_from_for =
     "Pipe closed in process %d for reading into %d process from %d process.\n";

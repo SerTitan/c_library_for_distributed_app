@@ -8,7 +8,7 @@
 #include "common.h"
 #include "ipc.h"
 #include "pa2345.h"
-#include "pa1_custom.h"
+#include "pa1234_custom.h"
 
 static int fd[12][12][2];
 static int is_closed[12][12] = {{0}}; //Number in cell i,j describe status of pipe between i and j. 0 - it's opened. 1 - it's closed for reading. 2 - it's closed for writing. 3 - it's completley closed;
