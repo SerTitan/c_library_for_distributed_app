@@ -35,8 +35,10 @@ void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father
 void become_a_dad(struct Actor *dad, struct Actor *daughter, int32_t children_number, balance_t daughter_bank_account[]);
 
 //Stages of daughter's working process
+int started_to_send(struct Actor *daughter);
 int prepare_for_work(struct Actor *daughter);
 int at_work(struct Actor *daughter);
+int done_to_send(struct Actor *daughter);
 int before_a_sleep(struct Actor *daughter);
 int check_recieve_again(struct Actor *daughter);
 int send_balance_history(struct Actor *daughter);
@@ -84,7 +86,7 @@ int main(int argc, char * argv[]) {
         } 
     }
     //Try to create or open files
-    int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT);
+    int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT, 0777);
     //int events_file = open(events_log, O_WRONLY | O_TRUNC | O_CREAT);
     if (events_file == -1)
         exit(1);
@@ -105,30 +107,35 @@ int main(int argc, char * argv[]) {
     if (im_not_a_father){
         leave_needed_pipes(daughter.my_id, children_number); //Close extra pipes for child processes
 
-        while (prepare_for_work(&daughter) != 0) //Synchronization before useful work
-            continue;
+        if (started_to_send(&daughter) != 0) {
+            printf("Process %d couldn't send messages STARTED", daughter.my_id);
+            exit(8);
+        } 
+
+        if (prepare_for_work(&daughter) != 0) //Synchronization before useful work
+            exit(9);
         
         if (at_work(&daughter) != 0) //Useful work
-            exit(8);
-        
-        
-        while (before_a_sleep(&daughter) != 0) { //Synchronization after useful work
-            continue;
-        }
-        if (check_recieve_again(&daughter) != 0) {
             exit(10);
+
+        if(done_to_send(&daughter) != 0) {
+            printf("Process %d couldn't send messages DONE", daughter.my_id);
+            exit(11);
         }
         
-        if (send_balance_history(&daughter) != 0) {
-            exit(9);
-        }
+        
+        if (before_a_sleep(&daughter) != 0) //Synchronization after useful work
+            exit(12);
+        
+        if (send_balance_history(&daughter) != 0) 
+            exit(13);
+        
         
         close_rest_of_pipes(daughter.my_id, children_number);
         exit(0);
     }
     else{
         leave_needed_pipes(father.my_id, children_number); //Close extra pipes for main processes
-        int status;
         while (father_check_started(&father) != 0)
             continue;
 
@@ -136,6 +143,7 @@ int main(int argc, char * argv[]) {
         
         Message stopMessage = make_a_message(STOP, "");
         send_multicast(&father, &stopMessage);
+        int status;
         while (children_number != 0) 
             if ((status = waitpid(-1, NULL, WEXITED || WNOHANG)) <= 0) children_number--;
 
@@ -148,7 +156,6 @@ int main(int argc, char * argv[]) {
         close_rest_of_pipes(PARENT_ID, father.my_kids);
         
         close_events_file();
-        sleep(1);
     } 
     return 0;
 }
