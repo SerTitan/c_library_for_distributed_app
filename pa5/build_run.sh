@@ -1,6 +1,6 @@
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/sertitan/c_library_for_distributed_app/pa4";
-export LD_PRELOAD="/home/sertitan/c_library_for_distributed_app/pa4/libruntime.so";
-clang-3.5 -std=c99 -Wall -pedantic *.c -o pa4 -L. -lruntime
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/sertitan/c_library_for_distributed_app/pa5";
+export LD_PRELOAD="/home/sertitan/c_library_for_distributed_app/pa5/libruntime.so";
+clang-3.5 -std=c99 -Wall -pedantic *.c -o pa5 -L. -lruntime
 
 if [ "$#" -lt 1 ] || [ "$#" -gt 2 ]; then
   echo "Неверное количество аргументов. Использование: $0 <флаги> <число от 2 до 10>"
@@ -24,6 +24,6 @@ else
 fi
 
 
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/sertitan/c_library_for_distributed_app/pa4"; 
+export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:/home/sertitan/c_library_for_distributed_app/pa5"; 
 
-LD_PRELOAD=/home/sertitan/c_library_for_distributed_app/pa4/libruntime.so ./pa4 $opt-p $count
+LD_PRELOAD=/home/sertitan/c_library_for_distributed_app/pa5/libruntime.so ./pa5 $opt-p $count

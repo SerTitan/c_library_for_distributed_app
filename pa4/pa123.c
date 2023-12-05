@@ -9,7 +9,6 @@
 #include "ipc.h"
 #include "pa1234_custom.h"
 #include "pa2345.h"
-#include "banking.h"
 
 static char buffer[100] = "";
 

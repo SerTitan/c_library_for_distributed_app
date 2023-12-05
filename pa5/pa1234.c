@@ -9,16 +9,17 @@
 #include "ipc.h"
 #include "pa12345_custom.h"
 #include "pa2345.h"
-#include "banking.h"
 
 static char buffer[100] = "";
 
 static int events_f;
 static timestamp_t current_logical_time = 0;
 
-static csQueueElement csQueue[1000];
+//static csQueueElement csQueue[1000];
 static int csQueueHead = 0;
 static int csQueueBottom = 0;
+
+static int DR[12];
 
 csQueueElement makeElement(timestamp_t time, local_id id) {
     csQueueElement element;
@@ -61,7 +62,6 @@ void actor_dad(struct Actor *dad, pid_t zero_dad, int32_t children_number){
     dad->my_father_pid = -1;
     dad->my_kids = children_number;
     dad->my_sisters = 0;
-    // dad->my_balance.s_balance = 0;
 }
 
 void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father_pid, int32_t children_number) {
@@ -70,18 +70,6 @@ void actor_daughter(struct Actor *daughter, local_id id, pid_t pid, pid_t father
     daughter->my_father_pid = father_pid;
     daughter->my_kids = 0;
     daughter->my_sisters = children_number-1;
-    // daughter->my_balance.s_balance = 0;
-    // daughter->my_balance.s_time = 0;
-    // daughter->my_balance.s_balance_pending_in = 0;
-    // daughter->history.s_id = id;
-    // daughter->history.s_history[0] = daughter->my_balance;
-    // BalanceState nullBalance;
-    // nullBalance.s_balance = -1;
-    // nullBalance.s_time = -1;
-    // nullBalance.s_balance_pending_in = 0;
-    // for (int i = 1; i < MAX_T; i++) {
-    //     daughter->history.s_history[i] = nullBalance;
-    // }
 }
 
 // pid named dad make fork kids times 
@@ -132,28 +120,6 @@ Message make_a_message_2(MessageType messageType, void* message, size_t payload_
     
     return msg;
 }
-
-// TransferOrder makeTransferOrder(local_id s_src, local_id s_dst, balance_t s_amount) {
-//     TransferOrder order;
-//     order.s_amount = s_amount;
-//     order.s_dst = s_dst;
-//     order.s_src = s_src;
-
-//     return order;
-// }
-
-// void transfer(void * parent_data, local_id src, local_id dst, balance_t amount) {
-//     struct Actor *father = (struct Actor *)parent_data;
-//     TransferOrder order = makeTransferOrder(src, dst, amount);
-//     char order_string[100];
-//     sprintf(order_string, "%d %d %d", order.s_src, order.s_dst, order.s_amount);
-//     current_logical_time++;
-//     Message to_src_message = make_a_message_2(TRANSFER, &order, sizeof(TransferOrder));
-//     send(father, src, &to_src_message);
-//     while (to_src_message.s_header.s_type != ACK)
-//         receive(father, dst, &to_src_message);
-//     current_logical_time = max(current_logical_time, to_src_message.s_header.s_local_time) + 1;
-// }
 
 int send_start(struct Actor *daughter) {
     current_logical_time++;
@@ -231,11 +197,10 @@ int at_work(struct Actor *daughter){
         for (uint8_t i = 1; i <= max_iteration; i++) {
             //Send REQUEST
             current_logical_time++;
+            timestamp_t requestTime = current_logical_time;
             Message requestMessage = make_a_message_2(CS_REQUEST, &daughter->my_id, sizeof(local_id));
             send_multicast(daughter, &requestMessage);
 
-            csQueueElement element = makeElement(current_logical_time, daughter->my_id);
-            addElement(csQueue, element);
             //Release OK from all
             Message someMessage;
             int releasedReplies = 0;
@@ -243,6 +208,8 @@ int at_work(struct Actor *daughter){
                 someMessage = make_a_message(ACK, "");
                 receive_any(daughter, &someMessage);
                 if (someMessage.s_header.s_type == CS_REPLY) {
+                    local_id receivier_ID;
+                    memcpy(&receivier_ID, someMessage.s_payload, sizeof(someMessage.s_payload));
                     current_logical_time = max(current_logical_time, someMessage.s_header.s_local_time) + 1;
                     releasedReplies++;
                 }
@@ -250,64 +217,48 @@ int at_work(struct Actor *daughter){
                     current_logical_time = max(current_logical_time, someMessage.s_header.s_local_time) + 1;
                     local_id receivier_ID;
                     memcpy(&receivier_ID, someMessage.s_payload, sizeof(someMessage.s_payload));
-                    csQueueElement element = makeElement(someMessage.s_header.s_local_time, receivier_ID);
-                    addElement(csQueue, element);
-                    someMessage = make_a_message(CS_REPLY, "");
-                    send(daughter, receivier_ID, &someMessage);
-                }
-                if (someMessage.s_header.s_type == CS_RELEASE) {
-                    current_logical_time = max(current_logical_time, someMessage.s_header.s_local_time) + 1;
-                    sortQ(csQueue);
-                    popElement(csQueue);
+                    if (someMessage.s_header.s_local_time > requestTime) {
+                        DR[receivier_ID] = 1;
+                    } else if (someMessage.s_header.s_local_time == requestTime) {
+                        if (receivier_ID > daughter->my_id) {
+                            DR[receivier_ID] = 1;
+                        } else {
+                            someMessage = make_a_message_2(CS_REPLY, &daughter->my_id, sizeof(local_id));
+                            send(daughter, receivier_ID, &someMessage);
+                        }
+                    } else {
+                        someMessage = make_a_message_2(CS_REPLY, &daughter->my_id, sizeof(local_id));
+                        send(daughter, receivier_ID, &someMessage);
+                    }
                 }
                 if (someMessage.s_header.s_type == DONE) {
+                    current_logical_time = max(current_logical_time, someMessage.s_header.s_local_time) + 1;
                     local_id receivier_ID;
                     memcpy(&receivier_ID, someMessage.s_payload, sizeof(someMessage.s_payload));
                     last_recieved_message[receivier_ID] = DONE;
-                    neededReleasedReplies = neededReleasedReplies - 1;
-                    // printf("%d\n", neededReleasedReplies);
                 }
             }
-            //Sort Q
-            sortQ(csQueue);
-            // printf("%d: My queue's parameters are %d and %d", daughter->my_id, csQueueBottom, csQueueHead);
-            // printf("%d: My sorted queue before all releases is ", daughter->my_id);
-            // for (int i = csQueueBottom; i < csQueueHead; i++) {
-            //     printf("(%d, %d)", csQueue[i].time, csQueue[i].id);
-            // }
-            // printf("\n");
-            while (csQueue[csQueueBottom].id != daughter->my_id) {
-                Message releaseMessageFrom;
-                // printf("%d: %d\n", daughter->my_id, releaseMessageFrom.s_header.s_type);
-                while (releaseMessageFrom.s_header.s_type != CS_RELEASE) {
-                    receive(daughter, csQueue[csQueueBottom].id, &releaseMessageFrom);
-                }
-                releaseMessageFrom = make_a_message(ACK, "");
-                popElement(csQueue);
-            }
-            //CS print
-            // printf("%d: My sorted queue after releases is ", daughter->my_id);
-            // for (int i = csQueueBottom; i < csQueueHead; i++) {
-            //     printf("(%d, %d)", csQueue[i].time, csQueue[i].id);
-            // }
-            // printf("\n");
+
             memset(buffer, 0, sizeof(buffer));
             sprintf(buffer, log_loop_operation_fmt, daughter->my_id, i, max_iteration);
             print(buffer);
             write(events_f, buffer, strlen(buffer));
             
             //Release CS
-            popElement(csQueue);
-            Message releaseMessage = make_a_message_2(CS_RELEASE, &daughter->my_id, sizeof(local_id));
-            // printf("%d: My sorted queue before send release is ", daughter->my_id);
-            // for (int i = csQueueBottom; i < csQueueHead; i++) {
-            //     printf("(%d, %d)", csQueue[i].time, csQueue[i].id);
-            // }
-            // printf("\n");
-            send_multicast(daughter, &releaseMessage);
+            current_logical_time++;
+            char s[100];
+            sprintf(s, "%d: DR ", daughter->my_id);
+            for (int i = 1; i <= daughter->my_sisters+1; i++) {
+                sprintf(s, "%s %d ", s, DR[i]);
+                if (DR[i] == 1) {
+                    Message releaseMessage = make_a_message_2(CS_REPLY, &daughter->my_id, sizeof(local_id));
+                    send(daughter, i, &releaseMessage);
+                    DR[i] = 0;
+                }
+            }
         }
     } else {
-        for (uint8_t i = 1; i <= max_iteration; i++) {
+        for (int i = 1; i <= max_iteration; i++) {
             memset(buffer, 0, sizeof(buffer));
             sprintf(buffer, log_loop_operation_fmt, daughter->my_id, i, max_iteration);
             print(buffer);
@@ -318,6 +269,7 @@ int at_work(struct Actor *daughter){
 }
 
 int send_done(struct Actor *daughter) {
+    // printf("I sending DONE\n");
     current_logical_time++;
     Message done_message = make_a_message_2(DONE, &daughter->my_id, sizeof(local_id));
     if (send_multicast(daughter, &done_message) != 0) {
@@ -331,15 +283,19 @@ int send_done(struct Actor *daughter) {
 int before_a_sleep(struct Actor *daughter){
     Message done_message = make_a_message(ACK, "");
     while (1) {
-        for (uint8_t i = 1; i <= daughter->my_sisters+1; i++) {
-            if (daughter->my_id != i && last_recieved_message[i] != DONE) {
-                if (receive(daughter, i, &done_message) != 0)
-                    break;
-                if (done_message.s_header.s_type == DONE) {
-                    last_recieved_message[i] = DONE;
-                    current_logical_time = max(current_logical_time, done_message.s_header.s_local_time) + 1;
-                }
-            }
+        receive_any(daughter, &done_message);
+        if (done_message.s_header.s_type == DONE) {
+            current_logical_time = max(current_logical_time, done_message.s_header.s_local_time) + 1;
+            local_id receivier_ID;
+            memcpy(&receivier_ID, done_message.s_payload, sizeof(done_message.s_payload));
+            last_recieved_message[receivier_ID] = DONE;
+        }
+        if (done_message.s_header.s_type == CS_REQUEST) {
+            current_logical_time = max(current_logical_time, done_message.s_header.s_local_time) + 1;
+            local_id receivier_ID;
+            memcpy(&receivier_ID, done_message.s_payload, sizeof(done_message.s_payload));
+            done_message = make_a_message_2(CS_REPLY, &daughter->my_id, sizeof(local_id));
+            send(daughter, receivier_ID, &done_message);
         }
         
         uint8_t recivied_done = 0;

@@ -9,7 +9,6 @@
 #include "ipc.h"
 #include "pa12345_custom.h"
 #include "pa2345.h"
-#include "banking.h"
 
 static const char * const events_log;
 static const char * const pipes_log;
@@ -141,6 +140,7 @@ int main(int argc, char * argv[]) {
         close_rest_of_pipes(PARENT_ID, father.my_kids);
         
         close_events_file();
+        sleep(1);
     } 
     return 0;
 }

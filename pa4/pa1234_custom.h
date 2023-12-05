@@ -16,7 +16,6 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h> 
-#include "banking.h"
 
 MessageType last_recieved_message[10];
 
@@ -40,8 +39,6 @@ struct Actor {
     pid_t my_father_pid;
     int32_t my_kids;
     int32_t my_sisters;
-    BalanceState my_balance;
-    BalanceHistory history;
 };
 
 typedef struct {
