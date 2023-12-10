@@ -15,30 +15,7 @@ static char buffer[100] = "";
 static int events_f;
 static timestamp_t current_logical_time = 0;
 
-//static csQueueElement csQueue[1000];
-static int csQueueHead = 0;
-static int csQueueBottom = 0;
-
 static int DR[12];
-
-csQueueElement makeElement(timestamp_t time, local_id id) {
-    csQueueElement element;
-    element.time = time;
-    element.id = id;
-    return element;
-}
-
-
-void addElement(csQueueElement *csQueue, csQueueElement element) {
-    csQueue[csQueueHead] = element;
-    csQueueHead++;
-}
-
-csQueueElement popElement(csQueueElement *csQueue) {
-    csQueueElement element = csQueue[csQueueBottom];
-    csQueueBottom++;
-    return element;
-}
 
 timestamp_t max(timestamp_t a, timestamp_t b) {
     if (a > b) {
@@ -160,33 +137,6 @@ int prepare_for_work(struct Actor *daughter){
 
     return 1;
 }
-
-void mySwap(csQueueElement *csQueue, int left, int right) {
-    csQueueElement element = csQueue[left];
-    csQueue[left] = csQueue[right];
-    csQueue[right] = element;
-}
-
-void sortQ(csQueueElement *csQueue) {
-    for (int i = csQueueBottom; i < csQueueHead; i++) {
-        int wasSwap = 0;
-        for (int j = i; j < csQueueHead-1; j++) {
-            if (csQueue[j].time > csQueue[j+1].time) {
-                mySwap(csQueue, j, j+1);
-                wasSwap = 1;
-            } else if (csQueue[j].time == csQueue[j+1].time) {
-                if (csQueue[j].id > csQueue[j+1].id) {
-                    mySwap(csQueue, j, j+1);
-                    wasSwap = 1;
-                }
-            }
-        }
-        if (wasSwap == 0) {
-            break;
-        }
-    }
-}
-
 
 int at_work(struct Actor *daughter){
     //Some kind of work

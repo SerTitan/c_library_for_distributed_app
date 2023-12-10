@@ -19,7 +19,7 @@
 
 MessageType last_recieved_message[10];
 
-bool critical_area_enable;
+extern bool critical_area_enable;
 
 static const char * const pipe_closed_read_from_for =
     "Pipe closed in process %d for reading into %d process from %d process.\n";
@@ -40,10 +40,5 @@ struct Actor {
     int32_t my_kids;
     int32_t my_sisters;
 };
-
-typedef struct {
-    timestamp_t time;
-    local_id id;
-} csQueueElement;
 
 #endif // __IFMO_DISTRIBUTED_CLASS_PA1_CUSTOM__H

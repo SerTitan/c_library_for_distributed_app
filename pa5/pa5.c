@@ -54,33 +54,36 @@ int send(void * self, local_id dst, const Message * msg);
 Message make_a_message(MessageType messageType, const char *message);
 // Message make_a_message_2(MessageType messageType, const void *message, size_t payload_size);
 
+bool critical_area_enable = false;
+
 
 int main(int argc, char * argv[]) {
     int32_t children_number;
-    uint8_t argv_num;
-
+    uint8_t argv_num = 0;
 
     for (int i = 0; i < sizeof(last_recieved_message); i++) {
         last_recieved_message[i] = STOP;
     }
-    
-    if (strcmp(argv[1], "--mutexl") != 0) {
-        critical_area_enable = false;
-        argv_num = 1;
+    for (uint8_t i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--mutexl") == 0) {
+            critical_area_enable = true;
+            if (i == 1) argv_num = i + 1;
+            else if (i == 3) argv_num = i - 2;
+            else
+                exit(1);
+        }
     }
-    else {
-        critical_area_enable = true;
-        argv_num = 2;
-    }
-    
+
+    if (argv_num == 0) argv_num = 1;
+
     if (strcmp(argv[argv_num], "-p") != 0 || atoi(argv[argv_num + 1]) == 0){
         // printf("Неопознанный ключ или неверное количество аргументов! Пример: -p <количество процессов>\n");
-        exit(1);
+        exit(2);
     }
     else {
-        if (atoi(argv[argv_num+1]) > 10 || atoi(argv[argv_num+1]) <= PARENT_ID){
+        if (atoi(argv[argv_num+1]) > 9 || atoi(argv[argv_num+1]) <= PARENT_ID){
             //printf("Некорректное количество процессов для создания (0 < x <= 9)!\n");
-            exit(2);
+            exit(3);
         }  
         else
             children_number = atoi(argv[argv_num+1]);
@@ -89,7 +92,7 @@ int main(int argc, char * argv[]) {
     //Try to create or open files
     int events_file = open(events_log, O_WRONLY | O_APPEND | O_CREAT, 0777);
     if (events_file == -1)
-        exit(1);
+        exit(4);
 
     //Make pipes
     make_a_pipes(children_number);
